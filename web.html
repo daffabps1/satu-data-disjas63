@@ -5434,7 +5434,7 @@ async function fetchSheetGviz(sheetIdOrUrl, sheetName, timeoutMs = 12000, tqQuer
       const rows = (resp.table.rows || []).map(r => (r.c || []).map(cell => (cell ? (cell.v !== undefined ? cell.v : cell.f) : null)));
       return { cols, rows, connector: 'JSONP GVIZ' };
     },
-    `Akses ke sheet '${sheetName}' memerlukan berbagi 'Anyone with the link' atau Konektor Apps Script / Impor Excel.`
+    `Akses ke sheet '${sheetName}' memerlukan berbagi 'Anyone with the link' atau login akun Google.`
   );
 }
 
@@ -6032,9 +6032,6 @@ function renderSyncAndLinkManagerModal() {
           <button class="action-chip" style="padding:10px 14px;" onclick="exportUpdatedHtmlFile()">
             💾 Simpan Permanen (Unduh File HTML Terbaru)
           </button>
-          <button class="action-chip" style="padding:10px 14px;" onclick="activeManagerTab='connector'; renderSyncAndLinkManagerModal();">
-            🌐 Konektor Gratis &amp; Impor Excel
-          </button>
         </div>
         <div id="sync-live-log" style="background:var(--bg-warm); border:1px solid var(--line-soft); border-radius:10px; padding:12px; font-size:12px; color:var(--ink-800); min-height:95px;">
           <div>💡 Status saat ini: <strong>${lastSyncStatus}</strong>.</div>
@@ -6240,131 +6237,15 @@ function renderSyncAndLinkManagerModal() {
     </div>
   `;
 
-  const gasCodeTemplate = `// ============================================================================
-// KONEKTOR GRATIS GOOGLE SHEETS — SATU DATA DISTRIBUSI BPS KALSEL (Kode.gs)
-// Cara Pakai:
-// 1. Buka https://script.google.com -> Proyek Baru -> Tempel kode ini di Kode.gs
-// 2. Klik "Terapkan" (Deploy) -> "Deployment baru" -> Jenis: "Aplikasi Web" (Web App)
-// 3. Jalankan sebagai (Execute as): "Saya" (Me)
-// 4. Siapa yang memiliki akses (Who has access): "Siapa saja" (Anyone) -> Klik Terapkan
-// 5. Salin URL Web App (https://script.google.com/macros/s/.../exec) ke Dashboard!
-// ============================================================================
-function doGet(e) {
-  var params = (e && e.parameter) ? e.parameter : {};
-  if (params.sheetId && params.sheet) {
-    return serveSheetData(params);
-  }
-  return ContentService.createTextOutput(JSON.stringify({
-    status: 'ok',
-    service: 'BPS Kalsel Free Connector Active'
-  })).setMimeType(ContentService.MimeType.JSON);
-}
-
-function serveSheetData(params) {
-  var result = { status: 'ok', cols: [], rows: [] };
-  try {
-    var ss = SpreadsheetApp.openById(params.sheetId);
-    var sh = ss.getSheetByName(params.sheet);
-    if (!sh) throw new Error('Sheet tidak ditemukan: ' + params.sheet);
-    var vals = sh.getDataRange().getValues();
-    if (vals.length > 0) {
-      result.cols = vals[0].map(String);
-      var dataRows = vals.slice(1);
-      if (params.mode === 'ekspor2026') {
-        result.rows = dataRows.filter(function(r) { return Number(r[0]) === 2026; }).map(function(r) {
-          return [r[0], r[2], r[4], r[5], r[6], r[7], r[9], r[10], r[12], r[13], r[16], r[17], r[19], r[20], r[18]];
-        });
-      } else if (params.mode === 'impor2026') {
-        result.rows = dataRows.filter(function(r) { return Number(r[0]) === 2026; }).map(function(r) {
-          return [r[0], r[2], r[3], r[5], r[6], r[7], r[9], r[10], r[12], r[13], r[16], r[17], r[19], r[20], r[22], r[29], r[18]];
-        });
-      } else {
-        result.rows = dataRows;
-      }
-    }
-  } catch (err) {
-    result = { status: 'error', message: err.toString() };
-  }
-  var jsonStr = JSON.stringify(result);
-  if (params.callback) {
-    return ContentService.createTextOutput(params.callback + '(' + jsonStr + ');')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
-  return ContentService.createTextOutput(jsonStr).setMimeType(ContentService.MimeType.JSON);
-}`;
-
-  const currentGasUrl = String(DATA.sheet_ids?.gas_webapp_url || '');
-  const gasStatusBadge = currentGasUrl
-    ? `<span class="kpi-tag tag-teal">Konektor GAS Aktif</span>`
-    : `<span class="kpi-tag tag-amber">Mode Auto CORS / JSONP</span>`;
-
-  const tabConnectorHtml = `
-    <div style="display:grid; grid-template-columns: 1.08fr 0.92fr; gap:18px;">
-      <div class="modal-section-box">
-        <div class="modal-sec-head">
-          <div class="modal-sec-title">A. Konektor Gratis #1: Google Apps Script (Bebas CORS & Private Sheet)</div>
-          ${gasStatusBadge}
-        </div>
-        <p style="font-size:12px; color:var(--ink-600); margin-bottom:10px; line-height:1.5;">
-          Gunakan <strong>Google Apps Script Web App</strong> (100% Gratis dari Google) sebagai jembatan API. Keunggulannya: <strong>Spreadsheet BPS tidak perlu dibuka untuk umum (tetap internal)</strong>, bebas blokir <em>Third-Party Cookies / CORS</em>, dan bisa diakses dari perangkat mana saja tanpa login:
-        </p>
-        <div style="display:grid; grid-template-columns: 1fr auto; gap:8px; margin-bottom:10px;">
-          <input type="url" id="sync-input-gas-url" class="form-input" value="${currentGasUrl}" placeholder="Tempel URL Web App: https://script.google.com/macros/s/.../exec" style="font-size:11.5px;" />
-          <button class="action-chip primary" onclick="saveGasConnectorUrl()">🔗 Simpan Konektor</button>
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-          <button class="crit-tab active" onclick="copyGasConnectorCode()">📋 Salin Kode Script (Kode.gs)</button>
-          <button class="crit-tab" onclick="testAllSheetsConnection()">🧪 Uji Diagnostik 5 Spreadsheet</button>
-          <a class="crit-tab" href="https://script.google.com/home/start" target="_blank" rel="noopener" style="text-decoration:none;">🚀 Buka script.google.com ↗</a>
-        </div>
-        <textarea id="gas-script-preview" readonly style="width:100%; height:145px; font-family:var(--font-mono); font-size:10.5px; padding:8px; border-radius:8px; border:1px solid var(--line-soft); background:#F8FAFC; color:var(--ink-800); resize:vertical;">${gasCodeTemplate}</textarea>
-      </div>
-
-      <div class="modal-section-box">
-        <div class="modal-sec-head">
-          <div class="modal-sec-title">B. Konektor Gratis #2: Impor File Excel / CSV Lokal (.xlsx / .csv)</div>
-          <span class="kpi-tag tag-blue">100% Offline di Browser</span>
-        </div>
-        <p style="font-size:12px; color:var(--ink-600); margin-bottom:10px; line-height:1.5;">
-          Jika Google Sheets sedang dibatasi jaringan atau belum di-share, pilih langsung file Excel terbaru dari komputer Anda untuk memperbarui angka dashboard secara instan:
-        </p>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:14px;">
-          <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
-            🚢 Pilih Excel 01 Ekspor (.xlsx/.csv)
-            <input type="file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleLocalExcelImport(this, 'ekspor')" />
-          </label>
-          <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
-            📦 Pilih Excel 02 Impor (.xlsx/.csv)
-            <input type="file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleLocalExcelImport(this, 'impor')" />
-          </label>
-          <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
-            📈 Pilih Excel Monitoring 2026 (.xlsx)
-            <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="handleLocalExcelImport(this, 'monitoring')" />
-          </label>
-          <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
-            🏨 Pilih Excel LK BRS TPK (.xlsx)
-            <input type="file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleLocalExcelImport(this, 'tpk')" />
-          </label>
-        </div>
-
-        <div id="connector-diag-log" style="background:var(--bg-warm); border:1px solid var(--line-soft); border-radius:10px; padding:11px 13px; font-size:11.5px; color:var(--ink-800); min-height:110px; line-height:1.5;">
-          <div>💡 <strong>Status Multi-Konektor:</strong> 4 Jalur Sinkronisasi Aktif (1. Google Apps Script API &rarr; 2. Direct CORS Fetch &rarr; 3. JSONP GVIZ &rarr; 4. Impor Excel Lokal).</div>
-          <div style="color:var(--ink-500); margin-top:4px;">Klik <em>"🧪 Uji Diagnostik 5 Spreadsheet"</em> di sebelah kiri untuk mengecek status koneksi kelima spreadsheet BPS Kalsel.</div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  if (activeManagerTab === 'github') activeManagerTab = 'sync';
+  if (activeManagerTab === 'github' || activeManagerTab === 'connector') activeManagerTab = 'sync';
 
   const bodyHtml = `
     <div class="criteria-switcher" style="margin-bottom:16px; flex-wrap:wrap;">
       <button class="crit-tab ${activeManagerTab === 'sync' ? 'active' : ''}" onclick="activeManagerTab='sync'; renderSyncAndLinkManagerModal();">🔄 1. Live Sync Google Sheets</button>
-      <button class="crit-tab ${activeManagerTab === 'connector' ? 'active' : ''}" onclick="activeManagerTab='connector'; renderSyncAndLinkManagerModal();">🌐 2. Konektor Gratis &amp; Impor Excel</button>
-      <button class="crit-tab ${activeManagerTab === 'links' ? 'active' : ''}" onclick="activeManagerTab='links'; renderSyncAndLinkManagerModal();">🔗 3. Kelola Link Kegiatan</button>
-      <button class="crit-tab ${activeManagerTab === 'rilis' ? 'active' : ''}" onclick="activeManagerTab='rilis'; renderSyncAndLinkManagerModal();">📅 4. Kelola Periode Rilis BRS</button>
+      <button class="crit-tab ${activeManagerTab === 'links' ? 'active' : ''}" onclick="activeManagerTab='links'; renderSyncAndLinkManagerModal();">🔗 2. Kelola Link Kegiatan</button>
+      <button class="crit-tab ${activeManagerTab === 'rilis' ? 'active' : ''}" onclick="activeManagerTab='rilis'; renderSyncAndLinkManagerModal();">📅 3. Kelola Periode Rilis BRS</button>
     </div>
-    ${activeManagerTab === 'sync' ? tabSyncHtml : (activeManagerTab === 'connector' ? tabConnectorHtml : (activeManagerTab === 'links' ? tabLinksHtml : tabRilisHtml))}
+    ${activeManagerTab === 'sync' ? tabSyncHtml : (activeManagerTab === 'links' ? tabLinksHtml : tabRilisHtml)}
   `;
 
   openModal(
@@ -6463,167 +6344,6 @@ function saveRilisMappingPeriod() {
   populatePeriodeDropdown();
   renderBRSAll();
   renderSyncAndLinkManagerModal();
-}
-
-function saveGasConnectorUrl() {
-  const el = document.getElementById('sync-input-gas-url');
-  const val = String(el ? el.value : '').trim();
-  DATA.sheet_ids.gas_webapp_url = val;
-  saveLocalCustomizations();
-  renderSyncAndLinkManagerModal();
-  if (val) {
-    showToast('Konektor Google Apps Script berhasil disimpan! Menjalankan sinkronisasi...');
-    syncGoogleSheetsNow();
-  } else {
-    showToast('Konektor GAS dikosongkan. Menggunakan Mode Auto CORS / JSONP.');
-  }
-}
-
-function copyGasConnectorCode() {
-  const ta = document.getElementById('gas-script-preview');
-  if (!ta) return;
-  ta.select();
-  try {
-    document.execCommand('copy');
-    showToast('Kode Script (Kode.gs) berhasil disalin ke Clipboard!');
-  } catch (e) {
-    showToast('Silakan blok dan salin teks pada kotak Kode.gs.');
-  }
-}
-
-async function testAllSheetsConnection() {
-  const diagEl = document.getElementById('connector-diag-log');
-  const logLine = (msg) => {
-    if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px;">${msg}</div>`;
-  };
-  if (diagEl) diagEl.innerHTML = `<div>⏳ <strong>Menguji jalur konektor ke 5 Spreadsheet BPS Kalsel...</strong></div>`;
-
-  const targets = [
-    { name: 'Master Link Kegiatan', id: DATA.sheet_ids.master_links, sheet: 'Master_Link_Kegiatan' },
-    { name: 'Monitoring Distribusi 2026', id: DATA.sheet_ids.monitoring, sheet: 'Monitoring VPEK 2026' },
-    { name: 'LK BRS TPK & Transportasi', id: DATA.sheet_ids.tpk_trans, sheet: 'TPK' },
-    { name: '01 Data Ekspor Propasal', id: DATA.sheet_ids.ekspor, sheet: 'Data', tq: 'SELECT A, C WHERE A = 2026 LIMIT 5' },
-    { name: '02 Data Impor KPPBC', id: DATA.sheet_ids.impor, sheet: 'Data', tq: 'SELECT A, C WHERE A = 2026 LIMIT 5' }
-  ];
-
-  for (const t of targets) {
-    try {
-      const res = await fetchSheetGviz(t.id, t.sheet, 8000, t.tq || null);
-      logLine(`✅ <strong>${t.name}:</strong> Terhubung via <em>${res.connector || 'Live Connector'}</em> (${res.rows.length} baris sampel terbaca).`);
-    } catch (err) {
-      logLine(`⚠️ <strong>${t.name}:</strong> Sheet dibatasi aksesnya. Solusi gratis: pasang <em>Konektor Apps Script</em> di atas, ubah share sheet ke <em>Anyone with the link</em>, atau gunakan tombol <em>Pilih Excel Lokal</em>.`);
-    }
-  }
-}
-
-function handleLocalExcelImport(inputEl, targetType) {
-  const file = inputEl?.files?.[0];
-  if (!file) return;
-  if (typeof XLSX === 'undefined') {
-    showToast('Pustaka pembaca Excel sedang dimuat, silakan coba lagi.', true);
-    return;
-  }
-  const diagEl = document.getElementById('connector-diag-log') || document.getElementById('sync-live-log');
-  if (diagEl) diagEl.innerHTML = `<div>⏳ Membaca file lokal <strong>${file.name}</strong>...</div>`;
-
-  const reader = new FileReader();
-  reader.onload = function(evt) {
-    try {
-      const data = new Uint8Array(evt.target.result);
-      const wb = XLSX.read(data, { type: 'array' });
-
-      if (targetType === 'ekspor' || targetType === 'impor') {
-        const isEkspor = targetType === 'ekspor';
-        const shName = wb.SheetNames.find(n => n.toLowerCase() === 'data') || wb.SheetNames[0];
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[shName], { header: 1, defval: null });
-        const maxM = rebuildEksimFrom2026Rows(rows.slice(1), isEkspor);
-        if (maxM > 0) {
-          currentMonth = Math.max(currentMonth, maxM);
-          saveLocalCustomizations();
-          populatePeriodeDropdown();
-          renderBRSAll();
-          showToast(`Berhasil mengimpor ${isEkspor ? 'Ekspor' : 'Impor'} s.d. ${MONTH_NAMES[maxM - 1]} 2026 dari file ${file.name}!`);
-          if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px; color:#047857;">✅ <strong>${file.name} (Sheet '${shName}'):</strong> Berhasil memperbarui data ${isEkspor ? 'Ekspor' : 'Impor'} 2026 s.d. Bulan ${MONTH_NAMES[maxM - 1]} 2026. Klik <em>Unduh index.html</em> untuk menyimpan permanen.</div>`;
-        } else {
-          showToast('Tidak ditemukan baris transaksi Tahun 2026 pada sheet Data.', true);
-        }
-      } else if (targetType === 'monitoring') {
-        let monCount = 0;
-        wb.SheetNames.forEach(shName => {
-          const mMatch = shName.match(/Monitoring\s+(.+?)\s+2026/i);
-          const kKey = mMatch ? mMatch[1].trim() : shName.trim();
-          if (!DATA.monitoring.detail_kab[kKey]) return;
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[shName], { header: 1, defval: null });
-          const kabRows = [];
-          let totT = 0, totR = 0, totSub = 0, totRej = 0, totApp = 0, totEd = 0, totOp = 0;
-          rows.forEach(r => {
-            const kdRaw = String(r[0] || '').replace('.0', '').trim();
-            if (KAB_NAMES[kdRaw]) {
-              const target = Number(r[1]) || 0;
-              const submit = Number(r[2]) || 0;
-              const appPeng = Number(r[3]) || 0;
-              const rej = (Number(r[4]) || 0) + (Number(r[5]) || 0);
-              const edited = Number(r[6]) || 0;
-              const compPeng = Number(r[7]) || 0;
-              const compAdm = Number(r[8]) || 0;
-              const realisasi = Number(r[9]) || (appPeng + edited + compPeng + compAdm + submit);
-              const approve = appPeng + compPeng + compAdm;
-              const sisa = Math.max(0, target - realisasi);
-              const progres = target > 0 ? Math.round((realisasi / target) * 1000) / 10 : 100.0;
-              kabRows.push({ kode: kdRaw, kab: KAB_NAMES[kdRaw], target, realisasi, progres, sisa, total_assignment: target, submit, reject: rej, approve, edited, open: sisa, draft: 0, lainnya: 0 });
-              totT += target; totR += realisasi; totSub += submit; totRej += rej; totApp += approve; totEd += edited; totOp += sisa;
-            }
-          });
-          if (kabRows.length >= 10) {
-            DATA.monitoring.detail_kab[kKey] = kabRows;
-            const rekItem = DATA.monitoring.rekap_kegiatan.find(x => x.kegiatan === kKey);
-            if (rekItem) {
-              rekItem.target = totT; rekItem.realisasi = totR;
-              rekItem.progres = totT > 0 ? Math.round((totR / totT) * 1000) / 10 : 100.0;
-              rekItem.sisa = Math.max(0, totT - totR);
-              rekItem.submit = totSub; rekItem.reject = totRej; rekItem.approve = totApp; rekItem.edited = totEd; rekItem.open = totOp;
-            }
-            monCount++;
-          }
-        });
-        saveLocalCustomizations();
-        if (document.getElementById('page-monitoring').classList.contains('active')) renderMonitoringPage();
-        showToast(`Berhasil memperbarui ${monCount} kegiatan monitoring dari ${file.name}!`);
-        if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px; color:#047857;">✅ <strong>${file.name}:</strong> Berhasil memperbarui ${monCount} kegiatan Monitoring 2026.</div>`;
-      } else if (targetType === 'tpk') {
-        const shName = wb.SheetNames.find(n => n.toUpperCase().includes('TPK')) || wb.SheetNames[0];
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[shName], { header: 1, defval: null });
-        let tpkUpdated = 0;
-        rows.forEach(r => {
-          const th = Number(r[0]);
-          const bl = Number(r[1]);
-          const jenis = String(r[2] || '').trim();
-          const kelas = String(r[3] || '').trim();
-          if ((th === 2025 || th === 2026) && bl >= 1 && bl <= 12 && kelas) {
-            const yKey = String(th), mKey = String(bl);
-            if (!DATA.tpk[yKey]) DATA.tpk[yKey] = {};
-            if (!DATA.tpk[yKey][mKey]) DATA.tpk[yKey][mKey] = {};
-            DATA.tpk[yKey][mKey][kelas] = {
-              jenis,
-              tpk: r[4] !== null ? Math.round(Number(r[4]) * 100) / 100 : null,
-              rlm_gab: r[5] !== null ? Math.round(Number(r[5]) * 100) / 100 : null,
-              rlm_asing: r[6] !== null ? Math.round(Number(r[6]) * 100) / 100 : null,
-              rlm_nus: r[7] !== null ? Math.round(Number(r[7]) * 100) / 100 : null
-            };
-            tpkUpdated++;
-          }
-        });
-        saveLocalCustomizations();
-        renderBRSAll();
-        showToast(`Berhasil memperbarui ${tpkUpdated} baris data TPK dari ${file.name}!`);
-        if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px; color:#047857;">✅ <strong>${file.name}:</strong> Berhasil menyinkronkan ${tpkUpdated} baris data TPK Hotel.</div>`;
-      }
-    } catch (err) {
-      showToast('Gagal membaca file Excel: ' + err.message, true);
-    }
-    inputEl.value = '';
-  };
-  reader.readAsArrayBuffer(file);
 }
 
 function buildCleanHtmlSnapshot() {
