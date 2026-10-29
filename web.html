@@ -2209,6 +2209,10 @@ body {
 <span id="sync-btn-icon">🔄</span>
 <span id="sync-btn-label">Sync</span>
 </button>
+<button class="sync-trigger-btn" style="background:linear-gradient(135deg,#2DD4BF 0%,#99F6E4 55%,#14B8A6 100%); color:#134E4A;" onclick="openSyncAndLinkManager('github', null)" title="Publish atau Update Website Langsung ke GitHub Pages">
+<span>🚀</span>
+<span>Publish GitHub</span>
+</button>
 </div>
 </header><nav aria-label="Bidang indikator" class="brs-subnav" id="brs-subnav"><div class="domain-tab-bar">
 <button class="domain-tab active" onclick="filterDomain('all', this)">Semua Bidang</button>
@@ -2629,7 +2633,7 @@ function ensureRilisMonthExists(mNum, defaultStatus = null) {
   }
 }
 
-// Restore any custom links or rilis mapping saved in localStorage (merging new months safely)
+// Restore any custom links, rilis mapping, and synced Ekspor-Impor / BRS / Monitoring data saved in localStorage
 function loadLocalCustomizations() {
   try {
     const savedLinks = localStorage.getItem('bps_kalsel_custom_kegiatan_groups_v5');
@@ -2637,6 +2641,49 @@ function loadLocalCustomizations() {
       const parsed = JSON.parse(savedLinks);
       if (Array.isArray(parsed) && parsed.length > 0) {
         DATA.kegiatan_groups = parsed;
+      }
+    }
+    const savedSheets = localStorage.getItem('bps_kalsel_custom_sheet_ids_v5');
+    if (savedSheets) {
+      const parsedS = JSON.parse(savedSheets);
+      if (parsedS && typeof parsedS === 'object') {
+        Object.assign(DATA.sheet_ids, parsedS);
+      }
+    }
+    // Restore synced Ekspor-Impor core data & breakdowns so page refresh never reverts to old numbers
+    const savedEksimCore = localStorage.getItem('bps_kalsel_synced_eksim_core_v6');
+    let restoredMonth = null;
+    if (savedEksimCore) {
+      const parsedCore = JSON.parse(savedEksimCore);
+      if (parsedCore && typeof parsedCore === 'object') {
+        if (parsedCore.eksim && typeof parsedCore.eksim === 'object') {
+          DATA.eksim = Object.assign(DATA.eksim || {}, parsedCore.eksim);
+        }
+        if (parsedCore.eksim_breakdowns && typeof parsedCore.eksim_breakdowns === 'object') {
+          DATA.eksim_breakdowns = Object.assign(DATA.eksim_breakdowns || {}, parsedCore.eksim_breakdowns);
+        }
+        if (Array.isArray(parsedCore.ekspor_vol_26)) DATA.ekspor_vol_26 = parsedCore.ekspor_vol_26;
+        if (Array.isArray(parsedCore.impor_vol_26)) DATA.impor_vol_26 = parsedCore.impor_vol_26;
+        if (parsedCore.lastSyncStatus) lastSyncStatus = parsedCore.lastSyncStatus;
+        if (Number(parsedCore.currentMonth) >= 1) restoredMonth = Number(parsedCore.currentMonth);
+      }
+    }
+    const savedMicroEksim = localStorage.getItem('bps_kalsel_synced_micro_eksim_v6');
+    if (savedMicroEksim) {
+      const parsedMicro = JSON.parse(savedMicroEksim);
+      if (parsedMicro && typeof parsedMicro === 'object') {
+        if (parsedMicro.ekspor) DATA.micro_eksim.ekspor = parsedMicro.ekspor;
+        if (parsedMicro.impor) DATA.micro_eksim.impor = parsedMicro.impor;
+      }
+    }
+    const savedOther = localStorage.getItem('bps_kalsel_synced_other_data_v6');
+    if (savedOther) {
+      const parsedOther = JSON.parse(savedOther);
+      if (parsedOther && typeof parsedOther === 'object') {
+        if (parsedOther.tpk) DATA.tpk = parsedOther.tpk;
+        if (parsedOther.bandara) DATA.bandara = parsedOther.bandara;
+        if (parsedOther.laut) DATA.laut = parsedOther.laut;
+        if (parsedOther.monitoring) DATA.monitoring = parsedOther.monitoring;
       }
     }
     const savedRilis = localStorage.getItem('bps_kalsel_custom_rilis_v5');
@@ -2651,19 +2698,14 @@ function loadLocalCustomizations() {
         DATA.rilis_mapping = Object.values(byMonth).sort((a, b) => b.data_month - a.data_month);
       }
     }
-    const savedSheets = localStorage.getItem('bps_kalsel_custom_sheet_ids_v5');
-    if (savedSheets) {
-      const parsedS = JSON.parse(savedSheets);
-      if (parsedS && typeof parsedS === 'object') {
-        Object.assign(DATA.sheet_ids, parsedS);
-      }
-    }
     // Always ensure every available month in eksim_breakdowns has a filter option
     const eksLen = (DATA.eksim_breakdowns?.hs_ekspor || []).length;
     for (let m = 1; m <= eksLen; m++) {
       ensureRilisMonthExists(m);
     }
-    if (eksLen > 0) {
+    if (restoredMonth && restoredMonth >= 1 && restoredMonth <= eksLen) {
+      currentMonth = restoredMonth;
+    } else if (eksLen > 0) {
       currentMonth = eksLen;
     }
   } catch (e) {
@@ -2677,7 +2719,35 @@ function saveLocalCustomizations() {
     localStorage.setItem('bps_kalsel_custom_rilis_v5', JSON.stringify(DATA.rilis_mapping));
     localStorage.setItem('bps_kalsel_custom_sheet_ids_v5', JSON.stringify(DATA.sheet_ids));
   } catch (e) {
-    console.warn('Local storage save skipped:', e);
+    console.warn('Local storage config save skipped:', e);
+  }
+  try {
+    localStorage.setItem('bps_kalsel_synced_eksim_core_v6', JSON.stringify({
+      eksim: DATA.eksim,
+      eksim_breakdowns: DATA.eksim_breakdowns,
+      ekspor_vol_26: DATA.ekspor_vol_26,
+      impor_vol_26: DATA.impor_vol_26,
+      currentMonth,
+      lastSyncStatus,
+      syncedAt: Date.now()
+    }));
+  } catch (e) {
+    console.warn('Local storage eksim core save skipped:', e);
+  }
+  try {
+    localStorage.setItem('bps_kalsel_synced_other_data_v6', JSON.stringify({
+      tpk: DATA.tpk,
+      bandara: DATA.bandara,
+      laut: DATA.laut,
+      monitoring: DATA.monitoring
+    }));
+  } catch (e) {
+    console.warn('Local storage other data save skipped:', e);
+  }
+  try {
+    localStorage.setItem('bps_kalsel_synced_micro_eksim_v6', JSON.stringify(DATA.micro_eksim));
+  } catch (e) {
+    console.warn('Local storage micro eksim save skipped:', e);
   }
 }
 
@@ -2799,6 +2869,7 @@ function onChangePeriode(val) {
   if (sel && parseInt(sel.value, 10) !== currentMonth) {
     sel.value = String(currentMonth);
   }
+  saveLocalCustomizations();
   renderBRSAll();
 }
 
@@ -2827,8 +2898,11 @@ function renderBRSAll() {
 // 01. EKSPOR & IMPOR SECTION
 // ------------------------------------------
 function renderEksimSection(mIdx) {
-  const bEks = DATA.eksim_breakdowns.hs_ekspor[mIdx];
-  const bImp = DATA.eksim_breakdowns.hs_impor[mIdx];
+  const eksArr = DATA.eksim_breakdowns.hs_ekspor || [];
+  const impArr = DATA.eksim_breakdowns.hs_impor || [];
+  const bEks = eksArr[mIdx] || eksArr[eksArr.length - 1];
+  const bImp = impArr[mIdx] || impArr[impArr.length - 1];
+  if (!bEks || !bImp) return;
   const totE = bEks.total;
   const totI = bImp.total;
 
@@ -5374,16 +5448,17 @@ function normalizeEksimRowsUniversal(rows, isEkspor) {
 async function fetchSheetGviz(sheetIdOrUrl, sheetName, timeoutMs = 12000, tqQuery = null) {
   const cleanId = extractSpreadsheetId(sheetIdOrUrl);
   const gasUrl = String(DATA.sheet_ids?.gas_webapp_url || '').trim();
+  const cacheBuster = Date.now();
 
   // LAYER 1: Google Apps Script (GAS) Web App Free Connector (if configured)
   if (gasUrl && gasUrl.startsWith('https://script.google.com/')) {
     const modeParam = (sheetName === 'Data' && cleanId === DATA.sheet_ids.ekspor) ? 'ekspor2026'
       : ((sheetName === 'Data' && cleanId === DATA.sheet_ids.impor) ? 'impor2026' : 'raw');
-    const qUrl = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}sheetId=${encodeURIComponent(cleanId)}&sheet=${encodeURIComponent(sheetName)}&mode=${modeParam}`;
+    const qUrl = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}sheetId=${encodeURIComponent(cleanId)}&sheet=${encodeURIComponent(sheetName)}&mode=${modeParam}&_ts=${cacheBuster}`;
     try {
       const ctrl = new AbortController();
       const tid = setTimeout(() => ctrl.abort(), timeoutMs);
-      const res = await fetch(qUrl, { method: 'GET', mode: 'cors', credentials: 'omit', signal: ctrl.signal });
+      const res = await fetch(qUrl, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store', signal: ctrl.signal });
       clearTimeout(tid);
       if (res.ok) {
         const json = await res.json();
@@ -5405,12 +5480,12 @@ async function fetchSheetGviz(sheetIdOrUrl, sheetName, timeoutMs = 12000, tqQuer
   }
 
   // LAYER 2: Direct CORS Fetch via Google Visualization Endpoint (works without 3rd-party cookies when shared 'Anyone with link')
-  let gvizFetchUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tqx=out:json`;
+  let gvizFetchUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tqx=out:json&_ts=${cacheBuster}`;
   if (tqQuery) gvizFetchUrl += `&tq=${encodeURIComponent(tqQuery)}`;
   try {
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), Math.min(timeoutMs, 7500));
-    const res = await fetch(gvizFetchUrl, { method: 'GET', mode: 'cors', credentials: 'omit', signal: ctrl.signal });
+    const res = await fetch(gvizFetchUrl, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store', signal: ctrl.signal });
     clearTimeout(tid);
     if (res.ok) {
       const txt = await res.text();
@@ -5421,7 +5496,7 @@ async function fetchSheetGviz(sheetIdOrUrl, sheetName, timeoutMs = 12000, tqQuer
   }
 
   // LAYER 3: JSONP Script Callback (works on file:// or active Google session)
-  let jsonpUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tqx=responseHandler:__CB__`;
+  let jsonpUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tqx=responseHandler:__CB__&_ts=${cacheBuster}`;
   if (tqQuery) jsonpUrl += `&tq=${encodeURIComponent(tqQuery)}`;
   return fetchViaJsonpScript(
     jsonpUrl,
@@ -5434,7 +5509,7 @@ async function fetchSheetGviz(sheetIdOrUrl, sheetName, timeoutMs = 12000, tqQuer
       const rows = (resp.table.rows || []).map(r => (r.c || []).map(cell => (cell ? (cell.v !== undefined ? cell.v : cell.f) : null)));
       return { cols, rows, connector: 'JSONP GVIZ' };
     },
-    `Akses ke sheet '${sheetName}' memerlukan berbagi 'Anyone with the link' atau login akun Google.`
+    `Akses ke sheet '${sheetName}' memerlukan berbagi 'Anyone with the link' atau Konektor Apps Script / Impor Excel.`
   );
 }
 
@@ -5577,7 +5652,7 @@ function rebuildEksimFrom2026Rows(rawRows, isEkspor) {
   rows.forEach(r => {
     const yr = Number(r[0]);
     const mo = Number(r[1]);
-    const val = Number(r[13] ?? r[11] ?? 0);
+    const val = Number(r[13]) || Number(r[11]) || 0;
     if (yr === 2026 && mo >= 1 && mo <= 12 && val > 0) {
       if (mo > maxM) maxM = mo;
       const rawKet = String(r[isEkspor ? 14 : 16] || '').toUpperCase().trim();
@@ -5608,8 +5683,8 @@ function rebuildEksimFrom2026Rows(rawRows, isEkspor) {
     const hs2Desc = String(r[7] || '').trim();
     const negCode = cleanCodeJs(r[8]);
     const negName = String(r[9] || '').trim();
-    const netKg = Number(r[12] ?? r[10] ?? 0);
-    const valUsd = Number(r[13] ?? r[11] ?? 0);
+    const netKg = Number(r[12]) || Number(r[10]) || 0;
+    const valUsd = Number(r[13]) || Number(r[11]) || 0;
     if (valUsd <= 0 && netKg <= 0) return;
 
     if (!microRef.hs2_map[hs2Code] && hs2Desc) microRef.hs2_map[hs2Code] = hs2Desc;
@@ -5717,66 +5792,254 @@ function rebuildEksimFrom2026Rows(rawRows, isEkspor) {
   if (isEkspor) {
     DATA.eksim.status_ekspor_2026 = statusArr;
     DATA.eksim.ekspor_2026 = tot26.map(v => Math.round(v * 100) / 100);
+    DATA.ekspor_vol_26 = volTot26.map(v => Math.round(v * 100) / 100);
+    ['hs_ekspor', 'neg_ekspor', 'pel_ekspor'].forEach(k => {
+      (DATA.eksim_breakdowns[k] || []).forEach((mEntry, idx) => {
+        mEntry.status_curr = statusArr[idx] || 'ASEM';
+        mEntry.status_prev = idx > 0 ? (statusArr[idx - 1] || 'ATAP') : 'ATAP';
+        mEntry.status_yoy = 'ATAP';
+      });
+    });
   } else {
     DATA.eksim.status_impor_2026 = statusArr;
     DATA.eksim.impor_2026 = tot26.map(v => Math.round(v * 100) / 100);
+    DATA.impor_vol_26 = volTot26.map(v => Math.round(v * 100) / 100);
+    ['hs_impor', 'neg_impor', 'pel_impor', 'bec_impor'].forEach(k => {
+      (DATA.eksim_breakdowns[k] || []).forEach((mEntry, idx) => {
+        mEntry.status_curr = statusArr[idx] || 'ASEM';
+        mEntry.status_prev = idx > 0 ? (statusArr[idx - 1] || 'ATAP') : 'ATAP';
+        mEntry.status_yoy = 'ATAP';
+      });
+    });
   }
 
   return maxM;
 }
 
-async function syncGoogleSheetsNow() {
+function applyFallbackMonthlyTotals(isEkspor, tot26Vals) {
+  const flowKey = isEkspor ? 'ekspor' : 'impor';
+  const base25 = DATA.baseline_2025_eksim?.[flowKey]?.tot_25 || DATA.eksim?.[isEkspor ? 'ekspor_2025' : 'impor_2025'] || Array(12).fill(0);
+  const bKeys = isEkspor ? ['hs_ekspor', 'neg_ekspor', 'pel_ekspor'] : ['hs_impor', 'neg_impor', 'pel_impor', 'bec_impor'];
+  const numMonths = tot26Vals.length;
+  if (isEkspor) DATA.eksim.ekspor_2026 = tot26Vals.map(v => Math.round(v * 100) / 100);
+  else DATA.eksim.impor_2026 = tot26Vals.map(v => Math.round(v * 100) / 100);
+
+  bKeys.forEach(k => {
+    const arr = DATA.eksim_breakdowns[k] || [];
+    for (let m = 0; m < arr.length && m < numMonths; m++) {
+      const totM = tot26Vals[m] || 0;
+      const totPrev = m > 0 ? (tot26Vals[m - 1] || 0) : (base25[11] || 0);
+      const totYoy = base25[m] || 0;
+      const totCum26 = tot26Vals.slice(0, m + 1).reduce((a, b) => a + b, 0);
+      const totCum25 = base25.slice(0, m + 1).reduce((a, b) => a + b, 0);
+      const tObj = arr[m].total;
+      if (tObj) {
+        tObj.val_m = Math.round(totM * 10000) / 10000;
+        tObj.val_prev = Math.round(totPrev * 10000) / 10000;
+        tObj.val_yoy = Math.round(totYoy * 10000) / 10000;
+        tObj.cum_26 = Math.round(totCum26 * 10000) / 10000;
+        tObj.cum_25 = Math.round(totCum25 * 10000) / 10000;
+        tObj.mtm = pctChangeJs(totM, totPrev);
+        tObj.yoy = pctChangeJs(totM, totYoy);
+        tObj.ctc = pctChangeJs(totCum26, totCum25);
+        tObj.series_26 = tot26Vals.slice(0, arr.length).map(x => Math.round(x * 1000) / 1000);
+      }
+    }
+  });
+}
+
+let isSyncInProgress = false;
+let lastAutoSyncTimestamp = 0;
+
+async function syncGoogleSheetsNow(options = {}) {
+  const isAuto = Boolean(options && options.isAuto);
+  if (isSyncInProgress) return;
+  isSyncInProgress = true;
+  lastAutoSyncTimestamp = Date.now();
+
   const logEl = document.getElementById('sync-live-log');
   const setLog = (msg) => {
     if (logEl) logEl.innerHTML += `<div style="margin-bottom:4px;">${msg}</div>`;
   };
-  if (logEl) logEl.innerHTML = `<div>⏳ Memulai sinkronisasi langsung dari Google Sheets BPS Kalsel...</div>`;
+  if (logEl) {
+    logEl.innerHTML = `<div>⏳ ${isAuto ? 'Menjalankan Auto-Sync otomatis' : 'Memulai sinkronisasi langsung'} dari Google Sheets BPS Kalsel...</div>`;
+  }
 
   const btnIcon = document.getElementById('sync-btn-icon');
   const btnLbl = document.getElementById('sync-btn-label');
   if (btnIcon) btnIcon.textContent = '⏳';
-  if (btnLbl) btnLbl.textContent = 'Menyinkronkan...';
+  if (btnLbl) btnLbl.textContent = isAuto ? 'Auto-Sync...' : 'Menyinkronkan...';
 
   let updatedCount = 0;
+  const prevTotalMonths = (DATA.eksim_breakdowns?.hs_ekspor || []).length;
+  let maxSyncedMonth = currentMonth;
 
-  // 1. Sync Master Link Kegiatan (1okDsyDx8nysaQs5vAT0k4lTtoFB74nN9Xofl5taAkcQ)
-  try {
-    const resLinks = await fetchSheetGviz(DATA.sheet_ids.master_links, 'Master_Link_Kegiatan');
-    const grouped = {};
-    DATA.kegiatan_groups.forEach(g => { grouped[g.id] = []; });
-    resLinks.rows.forEach(r => {
-      const idKeg = String(r[0] || '').trim().toLowerCase();
-      const kat = String(r[4] || '').trim();
-      const judul = String(r[5] || '').trim();
-      const url = String(r[6] || '').trim();
-      const tipe = String(r[7] || 'Folder Drive').trim();
-      if (idKeg && judul && url && idKeg !== 'id_kegiatan') {
-        if (!grouped[idKeg]) grouped[idKeg] = [];
-        grouped[idKeg].push({ kat, judul, url, tipe });
+  // TAHAP PRIORITAS 1: Sinkronisasi Paralel Database Ekspor & Impor Terlebih Dahulu (agar angka Ekspor-Impor langsung berubah dalam 1-2 detik)
+  const syncEksporTask = (async () => {
+    try {
+      const tqEks = 'SELECT A, C, E, F, G, H, J, K, M, N, Q, R, T, U, S WHERE A = 2026';
+      const resEksData = await fetchSheetGviz(DATA.sheet_ids.ekspor, 'Data', 15000, tqEks);
+      const maxMEks = rebuildEksimFrom2026Rows(resEksData.rows, true);
+      if (maxMEks > 0) {
+        if (maxMEks > maxSyncedMonth) maxSyncedMonth = maxMEks;
+        updatedCount++;
+        setLog(`✅ <strong>01 Data Ekspor Propasal (Sheet 'Data'):</strong> Berhasil menyinkronkan ${resEksData.rows.length} baris transaksi 2026 (s.d. Bulan ${MONTH_NAMES[maxMEks - 1]} 2026) beserta rincian HS2, HS8, Negara & Pelabuhan.`);
+        return true;
       }
-    });
-    let totalLinksPulled = 0;
-    DATA.kegiatan_groups.forEach(g => {
-      if (grouped[g.id] && grouped[g.id].length > 0) {
-        g.links = grouped[g.id];
-        totalLinksPulled += grouped[g.id].length;
+    } catch (errEksData) {
+      try {
+        const resEksLk = await fetchSheetGviz(DATA.sheet_ids.ekspor_lk || DATA.sheet_ids.ekspor, 'Total Ekspor per Bulan', 9000).catch(() =>
+          fetchSheetGviz(DATA.sheet_ids.ekspor_lk || DATA.sheet_ids.ekspor, 'SheetNHS2', 9000)
+        );
+        const totRow = resEksLk.rows.find(r => String(r[1] || r[0] || '').toUpperCase().includes('TOTAL EKSPOR'));
+        if (totRow) {
+          const newTots = [...(DATA.eksim?.ekspor_2026 || [])];
+          for (let m = 0; m < 12; m++) {
+            const val = Number(totRow[2 + m]);
+            if (val > 0) {
+              ensureRilisMonthExists(m + 1);
+              if (m + 1 > maxSyncedMonth) maxSyncedMonth = m + 1;
+              newTots[m] = val > 1e4 ? (val / 1e6) : val;
+            }
+          }
+          applyFallbackMonthlyTotals(true, newTots);
+          updatedCount++;
+          setLog('✅ <strong>LK BRS Ekspor Propasal 2026:</strong> Nilai total bulanan & kumulatif berhasil disinkronkan.');
+          return true;
+        }
+      } catch (errFallbackE) {
+        setLog(`ℹ️ <strong>Data Ekspor Propasal:</strong> Menggunakan data tersimpan terakhir (${errEksData.message}).`);
       }
-    });
-    if (totalLinksPulled > 0) {
-      saveLocalCustomizations();
-      updatedCount++;
-      setLog(`✅ <strong>Master Link Kegiatan:</strong> Berhasil menarik ${totalLinksPulled} tautan instrumen & kegiatan terbaru.`);
     }
-  } catch (err) {
-    setLog(`⚠️ <strong>Master Link Kegiatan:</strong> Menggunakan data lokal (${err.message})`);
+    return false;
+  })();
+
+  const syncImporTask = (async () => {
+    try {
+      const tqImp = 'SELECT A, C, D, F, G, H, J, K, M, N, Q, R, T, U, W, AD, S WHERE A = 2026';
+      const resImpData = await fetchSheetGviz(DATA.sheet_ids.impor, 'Data', 15000, tqImp);
+      const maxMImp = rebuildEksimFrom2026Rows(resImpData.rows, false);
+      if (maxMImp > 0) {
+        if (maxMImp > maxSyncedMonth) maxSyncedMonth = maxMImp;
+        updatedCount++;
+        setLog(`✅ <strong>02 Data Impor KPPBC (Sheet 'Data'):</strong> Berhasil menyinkronkan ${resImpData.rows.length} baris transaksi 2026 (s.d. Bulan ${MONTH_NAMES[maxMImp - 1]} 2026) beserta rincian HS2, HS8, Negara, Pelabuhan & BEC.`);
+        return true;
+      }
+    } catch (errImpData) {
+      try {
+        const resImpLk = await fetchSheetGviz(DATA.sheet_ids.impor_lk || DATA.sheet_ids.impor, 'SheetNHS', 9000);
+        const totRowI = resImpLk.rows.find(r => String(r[1] || r[0] || '').toUpperCase().includes('TOTAL IMPOR'));
+        if (totRowI) {
+          const newTotsI = [...(DATA.eksim?.impor_2026 || [])];
+          for (let m = 0; m < 12; m++) {
+            const val = Number(totRowI[2 + m]);
+            if (val > 0) {
+              ensureRilisMonthExists(m + 1);
+              if (m + 1 > maxSyncedMonth) maxSyncedMonth = m + 1;
+              newTotsI[m] = val > 1e4 ? (val / 1e6) : val;
+            }
+          }
+          applyFallbackMonthlyTotals(false, newTotsI);
+          updatedCount++;
+          setLog('✅ <strong>LK BRS Impor KPPBC 2026:</strong> Nilai total bulanan & kumulatif berhasil disinkronkan.');
+          return true;
+        }
+      } catch (errFallbackI) {
+        setLog(`ℹ️ <strong>Data Impor KPPBC:</strong> Menggunakan data tersimpan terakhir (${errImpData.message}).`);
+      }
+    }
+    return false;
+  })();
+
+  const [eksChanged, impChanged] = await Promise.all([syncEksporTask, syncImporTask]);
+
+  // Langsung perbarui tampilan & simpan ke localStorage begitu Ekspor-Impor selesai!
+  const totalEksMonthsAfter = (DATA.eksim_breakdowns?.hs_ekspor || []).length;
+  for (let m = 1; m <= totalEksMonthsAfter; m++) {
+    ensureRilisMonthExists(m);
+  }
+  if (!isAuto && maxSyncedMonth > 0 && maxSyncedMonth <= totalEksMonthsAfter) {
+    currentMonth = maxSyncedMonth;
+  } else if (isAuto && totalEksMonthsAfter > prevTotalMonths) {
+    currentMonth = totalEksMonthsAfter;
+  }
+  if (eksChanged || impChanged) {
+    saveLocalCustomizations();
+    populatePeriodeDropdown();
+    renderBRSAll();
   }
 
-  // 2. Sync Monitoring Kegiatan Distribusi 2026 (14 Sheets)
-  try {
-    const monKeys = ['VDTW', 'VHTL', 'VHTS', 'SPUNP-G', 'SPUNP-H', 'SPUNP-J', 'SPUNP-MN', 'SPUNP-O', 'SPUNP-RS', 'VPEK', 'VREST', 'KSP', 'K3', 'BUMD'];
-    let monSuccess = 0;
-    for (const k of monKeys) {
-      try {
+  // TAHAP 2: Sinkronisasi Paralel TPK, Master Link Kegiatan & Monitoring 2026 di Latar Belakang
+  const syncLinksTask = (async () => {
+    try {
+      const resLinks = await fetchSheetGviz(DATA.sheet_ids.master_links, 'Master_Link_Kegiatan');
+      const grouped = {};
+      DATA.kegiatan_groups.forEach(g => { grouped[g.id] = []; });
+      resLinks.rows.forEach(r => {
+        const idKeg = String(r[0] || '').trim().toLowerCase();
+        const kat = String(r[4] || '').trim();
+        const judul = String(r[5] || '').trim();
+        const url = String(r[6] || '').trim();
+        const tipe = String(r[7] || 'Folder Drive').trim();
+        if (idKeg && judul && url && idKeg !== 'id_kegiatan') {
+          if (!grouped[idKeg]) grouped[idKeg] = [];
+          grouped[idKeg].push({ kat, judul, url, tipe });
+        }
+      });
+      let totalLinksPulled = 0;
+      DATA.kegiatan_groups.forEach(g => {
+        if (grouped[g.id] && grouped[g.id].length > 0) {
+          g.links = grouped[g.id];
+          totalLinksPulled += grouped[g.id].length;
+        }
+      });
+      if (totalLinksPulled > 0) {
+        updatedCount++;
+        setLog(`✅ <strong>Master Link Kegiatan:</strong> Berhasil menarik ${totalLinksPulled} tautan instrumen & kegiatan terbaru.`);
+      }
+    } catch (err) {
+      setLog(`⚠️ <strong>Master Link Kegiatan:</strong> Menggunakan data tersimpan (${err.message})`);
+    }
+  })();
+
+  const syncTpkTask = (async () => {
+    try {
+      const resTpk = await fetchSheetGviz(DATA.sheet_ids.tpk_trans, 'TPK');
+      let tpkUpdated = 0;
+      resTpk.rows.forEach(r => {
+        const th = Number(r[0]);
+        const bl = Number(r[1]);
+        const jenis = String(r[2] || '').trim();
+        const kelas = String(r[3] || '').trim();
+        if ((th === 2025 || th === 2026) && bl >= 1 && bl <= 12 && kelas) {
+          const yKey = String(th);
+          const mKey = String(bl);
+          if (!DATA.tpk[yKey]) DATA.tpk[yKey] = {};
+          if (!DATA.tpk[yKey][mKey]) DATA.tpk[yKey][mKey] = {};
+          DATA.tpk[yKey][mKey][kelas] = {
+            jenis,
+            tpk: r[4] !== null ? Math.round(Number(r[4]) * 100) / 100 : null,
+            rlm_gab: r[5] !== null ? Math.round(Number(r[5]) * 100) / 100 : null,
+            rlm_asing: r[6] !== null ? Math.round(Number(r[6]) * 100) / 100 : null,
+            rlm_nus: r[7] !== null ? Math.round(Number(r[7]) * 100) / 100 : null
+          };
+          tpkUpdated++;
+        }
+      });
+      if (tpkUpdated > 0) {
+        updatedCount++;
+        setLog(`✅ <strong>LK BRS TPK & Transportasi:</strong> Berhasil menyinkronkan ${tpkUpdated} baris data TPK & RLM Hotel.`);
+      }
+    } catch (err) {
+      setLog(`⚠️ <strong>LK BRS TPK & Transportasi:</strong> Menggunakan data tersimpan (${err.message})`);
+    }
+  })();
+
+  const syncMonitoringTask = (async () => {
+    try {
+      const monKeys = ['VDTW', 'VHTL', 'VHTS', 'SPUNP-G', 'SPUNP-H', 'SPUNP-J', 'SPUNP-MN', 'SPUNP-O', 'SPUNP-RS', 'VPEK', 'VREST', 'KSP', 'K3', 'BUMD'];
+      let monSuccess = 0;
+      await Promise.allSettled(monKeys.map(async (k) => {
         const resM = await fetchSheetGviz(DATA.sheet_ids.monitoring, `Monitoring ${k} 2026`, 6500);
         const kabRows = [];
         let totT = 0, totR = 0, totSub = 0, totRej = 0, totApp = 0, totEd = 0, totOp = 0;
@@ -5829,133 +6092,23 @@ async function syncGoogleSheetsNow() {
           }
           monSuccess++;
         }
-      } catch (innerErr) {
-        // continue other sheets
-      }
-    }
-    if (monSuccess > 0) {
-      updatedCount++;
-      setLog(`✅ <strong>Spreadsheet Monitoring 2026:</strong> Berhasil memperbarui ${monSuccess} sheet kegiatan (13 Kab/Kota).`);
-    }
-  } catch (err) {
-    setLog(`⚠️ <strong>Spreadsheet Monitoring 2026:</strong> ${err.message}`);
-  }
-
-  // 3. Sync TPK, Bandara & Pelabuhan Laut (12s_ke2UrBKxDJUC1IDR44O_Y1wX_bu76C_LewSa8_0E)
-  try {
-    const resTpk = await fetchSheetGviz(DATA.sheet_ids.tpk_trans, 'TPK');
-    let tpkUpdated = 0;
-    resTpk.rows.forEach(r => {
-      const th = Number(r[0]);
-      const bl = Number(r[1]);
-      const jenis = String(r[2] || '').trim();
-      const kelas = String(r[3] || '').trim();
-      if ((th === 2025 || th === 2026) && bl >= 1 && bl <= 12 && kelas) {
-        const yKey = String(th);
-        const mKey = String(bl);
-        if (!DATA.tpk[yKey]) DATA.tpk[yKey] = {};
-        if (!DATA.tpk[yKey][mKey]) DATA.tpk[yKey][mKey] = {};
-        DATA.tpk[yKey][mKey][kelas] = {
-          jenis,
-          tpk: r[4] !== null ? Math.round(Number(r[4]) * 100) / 100 : null,
-          rlm_gab: r[5] !== null ? Math.round(Number(r[5]) * 100) / 100 : null,
-          rlm_asing: r[6] !== null ? Math.round(Number(r[6]) * 100) / 100 : null,
-          rlm_nus: r[7] !== null ? Math.round(Number(r[7]) * 100) / 100 : null
-        };
-        tpkUpdated++;
-      }
-    });
-    if (tpkUpdated > 0) {
-      updatedCount++;
-      setLog(`✅ <strong>LK BRS TPK & Transportasi:</strong> Berhasil menyinkronkan ${tpkUpdated} baris data TPK & RLM Hotel.`);
-    }
-  } catch (err) {
-    setLog(`⚠️ <strong>LK BRS TPK & Transportasi:</strong> Menggunakan data lokal (${err.message})`);
-  }
-
-
-  // 4. Sync Database Ekspor (01 Data Ekspor Propasal 2022-2026: 1AsMXRHOH4Sr1K4KDdHHgHK8A5qjVTjU1XeaQkSE2Em0)
-  let maxSyncedMonth = currentMonth;
-  try {
-    const tqEks = 'SELECT A, C, E, F, G, H, J, K, M, N, Q, R, T, U, S WHERE A = 2026';
-    const resEksData = await fetchSheetGviz(DATA.sheet_ids.ekspor, 'Data', 15000, tqEks);
-    const maxMEks = rebuildEksimFrom2026Rows(resEksData.rows, true);
-    if (maxMEks > 0) {
-      if (maxMEks > maxSyncedMonth) maxSyncedMonth = maxMEks;
-      updatedCount++;
-      setLog(`✅ <strong>01 Data Ekspor Propasal (Sheet 'Data'):</strong> Berhasil menyinkronkan ${resEksData.rows.length} baris transaksi 2026 (s.d. Bulan ${MONTH_NAMES[maxMEks - 1]} 2026) beserta rincian HS2, HS8, Negara & Pelabuhan.`);
-    }
-  } catch (errEksData) {
-    try {
-      const resEksLk = await fetchSheetGviz(DATA.sheet_ids.ekspor_lk || DATA.sheet_ids.ekspor, 'SheetNHS2', 10000);
-      const totRow = resEksLk.rows.find(r => String(r[1] || '').toUpperCase().includes('TOTAL EKSPOR PER BULAN'));
-      if (totRow) {
-        for (let m = 0; m < 12; m++) {
-          const val = Number(totRow[2 + m]);
-          if (val > 0) {
-            ensureRilisMonthExists(m + 1);
-            if (m + 1 > maxSyncedMonth) maxSyncedMonth = m + 1;
-            if (DATA.eksim_breakdowns.hs_ekspor[m]) {
-              DATA.eksim_breakdowns.hs_ekspor[m].total.val_m = Math.round((val / 1e6) * 10000) / 10000;
-              DATA.eksim_breakdowns.hs_ekspor[m].total.series_26[m] = Math.round((val / 1e6) * 1000) / 1000;
-            }
-          }
-        }
+      }));
+      if (monSuccess > 0) {
         updatedCount++;
-        setLog('✅ <strong>LK BRS Ekspor Propasal 2026:</strong> Nilai total & komoditas HS2 berhasil disinkronkan.');
+        setLog(`✅ <strong>Spreadsheet Monitoring 2026:</strong> Berhasil memperbarui ${monSuccess} sheet kegiatan (13 Kab/Kota).`);
       }
-    } catch (errFallbackE) {
-      setLog(`ℹ️ <strong>Data Ekspor Propasal (s.d. September 2026):</strong> Data tersemat terbaru telah aktif (${errEksData.message}).`);
+    } catch (err) {
+      setLog(`⚠️ <strong>Spreadsheet Monitoring 2026:</strong> ${err.message}`);
     }
-  }
+  })();
 
-  // 5. Sync Database Impor (02 Data Impor KPPBC 2022-2026: 1sLUD_0XwfxE3RpttrzM5aavySoje3JfyJaEp9ilVphY)
-  try {
-    const tqImp = 'SELECT A, C, D, F, G, H, J, K, M, N, Q, R, T, U, W, AD, S WHERE A = 2026';
-    const resImpData = await fetchSheetGviz(DATA.sheet_ids.impor, 'Data', 15000, tqImp);
-    const maxMImp = rebuildEksimFrom2026Rows(resImpData.rows, false);
-    if (maxMImp > 0) {
-      if (maxMImp > maxSyncedMonth) maxSyncedMonth = maxMImp;
-      updatedCount++;
-      setLog(`✅ <strong>02 Data Impor KPPBC (Sheet 'Data'):</strong> Berhasil menyinkronkan ${resImpData.rows.length} baris transaksi 2026 (s.d. Bulan ${MONTH_NAMES[maxMImp - 1]} 2026) beserta rincian HS2, HS8, Negara, Pelabuhan & BEC.`);
-    }
-  } catch (errImpData) {
-    try {
-      const resImpLk = await fetchSheetGviz(DATA.sheet_ids.impor_lk || DATA.sheet_ids.impor, 'SheetNHS', 10000);
-      const totRowI = resImpLk.rows.find(r => String(r[1] || '').toUpperCase().includes('TOTAL IMPOR PER BULAN'));
-      if (totRowI) {
-        for (let m = 0; m < 12; m++) {
-          const val = Number(totRowI[2 + m]);
-          if (val > 0) {
-            ensureRilisMonthExists(m + 1);
-            if (m + 1 > maxSyncedMonth) maxSyncedMonth = m + 1;
-            if (DATA.eksim_breakdowns.hs_impor[m]) {
-              DATA.eksim_breakdowns.hs_impor[m].total.val_m = Math.round((val / 1e6) * 10000) / 10000;
-              DATA.eksim_breakdowns.hs_impor[m].total.series_26[m] = Math.round((val / 1e6) * 1000) / 1000;
-            }
-          }
-        }
-        updatedCount++;
-        setLog('✅ <strong>LK BRS Impor KPPBC 2026:</strong> Nilai total & komoditas HS2 berhasil disinkronkan.');
-      }
-    } catch (errFallbackI) {
-      setLog(`ℹ️ <strong>Data Impor KPPBC (s.d. September 2026):</strong> Data tersemat terbaru telah aktif (${errImpData.message}).`);
-    }
-  }
+  await Promise.allSettled([syncLinksTask, syncTpkTask, syncMonitoringTask]);
 
-  // Ensure all months in eksim_breakdowns are registered in rilis_mapping and dropdown
-  const totalEksMonths = (DATA.eksim_breakdowns?.hs_ekspor || []).length;
-  for (let m = 1; m <= totalEksMonths; m++) {
-    ensureRilisMonthExists(m);
-  }
-  if (maxSyncedMonth > 0 && maxSyncedMonth <= totalEksMonths) {
-    currentMonth = maxSyncedMonth;
-  }
+  const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  lastSyncStatus = updatedCount > 0 ? `Tersinkronisasi Live (${nowStr})` : `Data Terkini Aktif (${nowStr})`;
   saveLocalCustomizations();
   populatePeriodeDropdown();
 
-  const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-  lastSyncStatus = updatedCount > 0 ? `Tersinkronisasi Live (${nowStr})` : `Data September 2026 Aktif (${nowStr})`;
   if (btnIcon) btnIcon.textContent = '🔄';
   if (btnLbl) btnLbl.textContent = 'Sync';
 
@@ -5965,8 +6118,9 @@ async function syncGoogleSheetsNow() {
     renderMonitoringPage();
   }
   if (logEl) {
-    setLog(`🎉 <strong>Selesai!</strong> Seluruh tampilan grafik dan tabel telah diperbarui (${nowStr}).`);
+    setLog(`🎉 <strong>Selesai!</strong> Seluruh tampilan grafik dan tabel telah diperbarui & disimpan permanen di browser (${nowStr}).`);
   }
+  isSyncInProgress = false;
 }
 
 // =========================================================
@@ -6031,6 +6185,9 @@ function renderSyncAndLinkManagerModal() {
           </button>
           <button class="action-chip" style="padding:10px 14px;" onclick="exportUpdatedHtmlFile()">
             💾 Simpan Permanen (Unduh File HTML Terbaru)
+          </button>
+          <button class="action-chip" style="padding:10px 14px;" onclick="activeManagerTab='connector'; renderSyncAndLinkManagerModal();">
+            🌐 Konektor Gratis &amp; Publish ke Web
           </button>
         </div>
         <div id="sync-live-log" style="background:var(--bg-warm); border:1px solid var(--line-soft); border-radius:10px; padding:12px; font-size:12px; color:var(--ink-800); min-height:95px;">
@@ -6237,15 +6394,287 @@ function renderSyncAndLinkManagerModal() {
     </div>
   `;
 
-  if (activeManagerTab === 'github' || activeManagerTab === 'connector') activeManagerTab = 'sync';
+  const gasCodeTemplate = `// ============================================================================
+// KONEKTOR GRATIS & HOSTING WEB APP — SATU DATA DISTRIBUSI BPS KALSEL (Kode.gs)
+// Cara Pakai:
+// 1. Buka https://script.google.com -> Proyek Baru -> Tempel kode ini di Kode.gs
+// 2. Klik "Terapkan" (Deploy) -> "Deployment baru" -> Jenis: "Aplikasi Web" (Web App)
+// 3. Jalankan sebagai (Execute as): "Saya" (Me)
+// 4. Siapa yang memiliki akses (Who has access): "Siapa saja" (Anyone) -> Klik Terapkan
+// 5. Salin URL Web App (https://script.google.com/macros/s/.../exec) ke Dashboard!
+// ============================================================================
+function doGet(e) {
+  var params = (e && e.parameter) ? e.parameter : {};
+  if (params.sheetId && params.sheet) {
+    return serveSheetData(params);
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    status: 'ok',
+    service: 'BPS Kalsel Free Connector Active'
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function serveSheetData(params) {
+  var result = { status: 'ok', cols: [], rows: [] };
+  try {
+    var ss = SpreadsheetApp.openById(params.sheetId);
+    var sh = ss.getSheetByName(params.sheet);
+    if (!sh) throw new Error('Sheet tidak ditemukan: ' + params.sheet);
+    var vals = sh.getDataRange().getValues();
+    if (vals.length > 0) {
+      result.cols = vals[0].map(String);
+      var dataRows = vals.slice(1);
+      if (params.mode === 'ekspor2026') {
+        result.rows = dataRows.filter(function(r) { return Number(r[0]) === 2026; }).map(function(r) {
+          return [r[0], r[2], r[4], r[5], r[6], r[7], r[9], r[10], r[12], r[13], r[16], r[17], r[19], r[20], r[18]];
+        });
+      } else if (params.mode === 'impor2026') {
+        result.rows = dataRows.filter(function(r) { return Number(r[0]) === 2026; }).map(function(r) {
+          return [r[0], r[2], r[3], r[5], r[6], r[7], r[9], r[10], r[12], r[13], r[16], r[17], r[19], r[20], r[22], r[29], r[18]];
+        });
+      } else {
+        result.rows = dataRows;
+      }
+    }
+  } catch (err) {
+    result = { status: 'error', message: err.toString() };
+  }
+  var jsonStr = JSON.stringify(result);
+  if (params.callback) {
+    return ContentService.createTextOutput(params.callback + '(' + jsonStr + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(jsonStr).setMimeType(ContentService.MimeType.JSON);
+}`;
+
+  const currentGasUrl = String(DATA.sheet_ids?.gas_webapp_url || '');
+  const gasStatusBadge = currentGasUrl
+    ? `<span class="kpi-tag tag-teal">Konektor GAS Aktif</span>`
+    : `<span class="kpi-tag tag-amber">Mode Auto CORS / JSONP</span>`;
+
+  const tabConnectorHtml = `
+    <div style="display:grid; grid-template-columns: 1.05fr 1fr; gap:18px;">
+      <div class="modal-section-box">
+        <div class="modal-sec-head">
+          <div class="modal-sec-title">A. Konektor Gratis #1: Google Apps Script (Bebas CORS & Private Sheet)</div>
+          ${gasStatusBadge}
+        </div>
+        <p style="font-size:12px; color:var(--ink-600); margin-bottom:10px; line-height:1.5;">
+          Gunakan <strong>Google Apps Script Web App</strong> (100% Gratis dari Google) sebagai jembatan API. Keunggulannya: <strong>Spreadsheet BPS tidak perlu dibuka untuk umum (tetap internal)</strong>, bebas blokir <em>Third-Party Cookies / CORS</em>, dan bisa diakses dari perangkat mana saja tanpa login:
+        </p>
+        <div style="display:grid; grid-template-columns: 1fr auto; gap:8px; margin-bottom:10px;">
+          <input type="url" id="sync-input-gas-url" class="form-input" value="${currentGasUrl}" placeholder="Tempel URL Web App: https://script.google.com/macros/s/.../exec" style="font-size:11.5px;" />
+          <button class="action-chip primary" onclick="saveGasConnectorUrl()">🔗 Simpan Konektor</button>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+          <button class="crit-tab active" onclick="copyGasConnectorCode()">📋 Salin Kode Script (Kode.gs)</button>
+          <button class="crit-tab" onclick="testAllSheetsConnection()">🧪 Uji Diagnostik 5 Spreadsheet</button>
+          <a class="crit-tab" href="https://script.google.com/home/start" target="_blank" rel="noopener" style="text-decoration:none;">🚀 Buka script.google.com ↗</a>
+        </div>
+        <textarea id="gas-script-preview" readonly style="width:100%; height:115px; font-family:var(--font-mono); font-size:10.5px; padding:8px; border-radius:8px; border:1px solid var(--line-soft); background:#F8FAFC; color:var(--ink-800); resize:vertical;">${gasCodeTemplate}</textarea>
+
+        <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft);">
+          <div class="modal-sec-head" style="margin-bottom:6px;">
+            <div class="modal-sec-title">B. Konektor Gratis #2: Impor Langsung File Excel / CSV Lokal (.xlsx / .csv)</div>
+            <span class="kpi-tag tag-blue">100% Offline di Browser</span>
+          </div>
+          <p style="font-size:11.5px; color:var(--ink-600); margin-bottom:8px;">
+            Jika Google Sheets sedang dibatasi jaringan atau belum di-share, pilih langsung file Excel terbaru dari komputer Anda untuk memperbarui dashboard secara instan:
+          </p>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+            <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
+              🚢 Pilih Excel 01 Ekspor (.xlsx/.csv)
+              <input type="file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleLocalExcelImport(this, 'ekspor')" />
+            </label>
+            <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
+              📦 Pilih Excel 02 Impor (.xlsx/.csv)
+              <input type="file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleLocalExcelImport(this, 'impor')" />
+            </label>
+            <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
+              📈 Pilih Excel Monitoring 2026 (.xlsx)
+              <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="handleLocalExcelImport(this, 'monitoring')" />
+            </label>
+            <label class="action-chip" style="justify-content:center; cursor:pointer; font-size:11.5px;">
+              🏨 Pilih Excel LK BRS TPK (.xlsx)
+              <input type="file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleLocalExcelImport(this, 'tpk')" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-section-box">
+        <div class="modal-sec-head">
+          <div class="modal-sec-title">C. Publish Aplikasi ke Web (Hosting 100% Gratis & Permanen)</div>
+          <span class="kpi-tag tag-teal">Siap Online</span>
+        </div>
+        <p style="font-size:12px; color:var(--ink-600); margin-bottom:10px; line-height:1.5;">
+          Aplikasi ini dirancang dalam arsitektur <strong>Single-File Web App mandiri</strong>. Anda bisa mem-publishnya ke alamat web publik gratis hanya dalam hitungan detik:
+        </p>
+
+        <div class="sync-source-card" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:12.5px; font-weight:800; color:var(--ink-900);">⚡ Opsi 1: Netlify Drop / Cloudflare Pages (10 Detik Tanpa Koding)</div>
+            <span class="kpi-tag tag-teal">Paling Mudah</span>
+          </div>
+          <div style="font-size:11.5px; color:var(--ink-600); line-height:1.45;">
+            1. Klik tombol <strong>Unduh index.html Siap Publish</strong> di bawah.<br/>
+            2. Buka <a href="https://app.netlify.com/drop" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:700;">app.netlify.com/drop ↗</a> atau <a href="https://pages.cloudflare.com/" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:700;">Cloudflare Pages ↗</a>.<br/>
+            3. Tarik (drag &amp; drop) file <code>index.html</code> — website langsung online dengan link HTTPS gratis!
+          </div>
+          <div style="display:flex; gap:8px; margin-top:4px;">
+            <button class="action-chip primary" onclick="exportUpdatedHtmlFile('index.html')">📦 Unduh index.html Siap Publish Web</button>
+            <a class="action-chip" href="https://app.netlify.com/drop" target="_blank" rel="noopener" style="text-decoration:none;">🌐 Buka Netlify Drop ↗</a>
+          </div>
+        </div>
+
+        <div class="sync-source-card" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:12.5px; font-weight:800; color:var(--ink-900);">🏢 Opsi 2: GitHub Pages (Auto-Deploy 1-Klik &amp; Link Resmi)</div>
+            <span class="kpi-tag tag-blue">Gratis Selamanya</span>
+          </div>
+          <div style="font-size:11.5px; color:var(--ink-600); line-height:1.45;">
+            Publish langsung ke <code>https://username.github.io/satu-data-distribusi-kalsel/</code> menggunakan <strong>Auto-Deploy GitHub API</strong> atau <strong>Drag &amp; Drop index.html</strong>.
+          </div>
+          <div style="display:flex; gap:8px; margin-top:4px;">
+            <button class="action-chip primary" onclick="activeManagerTab='github'; renderSyncAndLinkManagerModal();">🚀 Buka Panel Publish GitHub Pages</button>
+            <button class="action-chip" onclick="exportUpdatedHtmlFile('index.html')">📥 Unduh index.html</button>
+          </div>
+        </div>
+
+        <div id="connector-diag-log" style="background:var(--bg-warm); border:1px solid var(--line-soft); border-radius:10px; padding:10px 12px; font-size:11.5px; color:var(--ink-800); min-height:76px; margin-top:8px;">
+          <div>💡 <strong>Status Multi-Konektor:</strong> 4 Jalur Aktif (1. Google Apps Script API &rarr; 2. Direct CORS Fetch &rarr; 3. JSONP GVIZ &rarr; 4. Impor Excel Lokal).</div>
+          <div style="color:var(--ink-500); margin-top:3px;">Klik <em>"🧪 Uji Diagnostik 5 Spreadsheet"</em> di sebelah kiri untuk mengecek status koneksi kelima spreadsheet BPS Kalsel.</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const ghCfg = getSavedGithubConfig();
+  const ghLiveUrl = (ghCfg.owner && ghCfg.repo) ? `https://${ghCfg.owner}.github.io/${ghCfg.repo}/` : '';
+  const ghRepoUrl = (ghCfg.owner && ghCfg.repo) ? `https://github.com/${ghCfg.owner}/${ghCfg.repo}` : '';
+  const ghBadgeHtml = ghLiveUrl
+    ? `<a href="${ghLiveUrl}" target="_blank" rel="noopener" class="kpi-tag tag-teal" style="text-decoration:none;">🟢 Live: ${ghCfg.owner}.github.io/${ghCfg.repo} ↗</a>`
+    : `<span class="kpi-tag tag-blue">Siap Deploy ke GitHub Pages</span>`;
+
+  const tabGithubHtml = `
+    <div style="display:grid; grid-template-columns: 1.08fr 0.92fr; gap:18px;">
+      <div class="modal-section-box">
+        <div class="modal-sec-head">
+          <div class="modal-sec-title">🚀 Metode 1: Auto-Publish 1-Klik ke GitHub Pages (Langsung dari Aplikasi)</div>
+          ${ghBadgeHtml}
+        </div>
+        <p style="font-size:12px; color:var(--ink-600); margin-bottom:12px; line-height:1.5;">
+          Terhubung langsung ke <strong>GitHub REST API</strong> dari browser Anda. Aplikasi otomatis <strong>membuat repositori publik</strong>, mengunggah <code>index.html</code> + <code>.nojekyll</code> + <code>README.md</code>, dan <strong>mengaktifkan GitHub Pages</strong> tanpa perlu install Git:
+        </p>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+          <div class="form-group">
+            <label class="form-label">Nama Repositori GitHub</label>
+            <input type="text" id="gh-repo-input" class="form-input" value="${ghCfg.repo || 'satu-data-distribusi-kalsel'}" placeholder="satu-data-distribusi-kalsel" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Username GitHub (Otomatis dari Token)</label>
+            <input type="text" id="gh-owner-input" class="form-input" value="${ghCfg.owner || ''}" placeholder="Terisi otomatis saat Publish" />
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:6px;">
+            <label class="form-label" style="margin:0;">GitHub Personal Access Token (Classic Token / PAT)</label>
+            <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Satu+Data+Distribusi+BPS+Kalsel" target="_blank" rel="noopener" style="font-size:11px; font-weight:800; color:var(--teal-700); text-decoration:none;">🔑 Buat Token GitHub Otomatis (15 Detik) ↗</a>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr auto; gap:8px;">
+            <input type="password" id="gh-token-input" class="form-input" value="${ghCfg.token || ''}" placeholder="Tempel token ghp_... (Izin repo sudah otomatis dicentang di link atas)" style="font-family:var(--font-mono); font-size:11.5px;" />
+            <button type="button" class="action-chip" onclick="toggleGhTokenVisibility()" title="Tampilkan/Sembunyikan Token">👁️</button>
+          </div>
+          <div style="font-size:10.5px; color:var(--ink-500); margin-top:4px;">
+            🔒 <strong>Aman 100%:</strong> Token hanya disimpan di browser lokal Anda dan <strong>tidak pernah</strong> dimasukkan ke dalam file <code>index.html</code> yang di-publish ke GitHub.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:12px;">
+          <label class="form-label">Catatan Update / Commit Message</label>
+          <input type="text" id="gh-commit-input" class="form-input" value="Update Portal Satu Data Distribusi BPS Kalsel (Data s.d. September 2026)" />
+        </div>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+          <button class="action-chip primary" id="btn-gh-publish-now" style="padding:10px 16px; font-size:12.5px;" onclick="publishToGitHubPagesNow()">
+            🚀 Publish &amp; Aktifkan GitHub Pages Sekarang
+          </button>
+          <button class="action-chip" style="padding:10px 12px;" onclick="checkGitHubPagesStatus()">
+            🔍 Cek Status Live URL
+          </button>
+          ${ghLiveUrl ? `<a class="action-chip" href="${ghLiveUrl}" target="_blank" rel="noopener" style="text-decoration:none; padding:10px 12px; background:#ECFDF5; border-color:#A7F3D0; color:#047857;">🌐 Buka Website GitHub Pages ↗</a>` : ''}
+        </div>
+
+        <div id="gh-publish-log" style="background:var(--bg-warm); border:1px solid var(--line-soft); border-radius:10px; padding:11px 13px; font-size:11.5px; color:var(--ink-800); min-height:105px; line-height:1.55;">
+          ${ghLiveUrl
+            ? `<div>✅ <strong>Repositori Terhubung:</strong> <a href="${ghRepoUrl}" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:700;">${ghCfg.owner}/${ghCfg.repo} ↗</a></div>
+               <div>🌐 <strong>Alamat Website Publik:</strong> <a href="${ghLiveUrl}" target="_blank" rel="noopener" style="color:#047857; font-weight:800;">${ghLiveUrl} ↗</a></div>
+               <div style="color:var(--ink-500); margin-top:4px;">Terakhir di-publish: ${ghCfg.lastPublishedAt || 'Tersimpan'}. Klik tombol <strong>Publish</strong> di atas kapan saja untuk memperbarui data di GitHub Pages.</div>`
+            : `<div>💡 <strong>Cara Cepat Auto-Publish (Sekali Klik):</strong></div>
+               <div>1. Klik <strong>"🔑 Buat Token GitHub Otomatis"</strong> di atas &rarr; scroll ke bawah di halaman GitHub &rarr; klik tombol hijau <strong>Generate token</strong>.</div>
+               <div>2. Salin kode token (<code>ghp_...</code>) lalu tempel ke kotak Token di atas.</div>
+               <div>3. Klik <strong>"🚀 Publish &amp; Aktifkan GitHub Pages Sekarang"</strong> — website langsung online!</div>`
+          }
+        </div>
+      </div>
+
+      <div class="modal-section-box">
+        <div class="modal-sec-head">
+          <div class="modal-sec-title">📦 Metode 2: Upload Manual di Web GitHub (Tanpa Token • 30 Detik)</div>
+          <span class="kpi-tag tag-teal">Drag &amp; Drop</span>
+        </div>
+        <p style="font-size:12px; color:var(--ink-600); margin-bottom:10px; line-height:1.5;">
+          Jika Anda ingin mengunggah file secara manual langsung melalui tampilan web GitHub tanpa membuat token:
+        </p>
+
+        <div class="sync-source-card" style="flex-direction:column; align-items:stretch; gap:8px;">
+          <div style="font-size:12px; font-weight:800; color:var(--ink-900);">Langkah 1 — Unduh File Siap Upload GitHub</div>
+          <div style="font-size:11.5px; color:var(--ink-600); line-height:1.45;">
+            GitHub Pages mewajibkan file utama bernama <strong><code>index.html</code></strong>. Klik tombol di bawah untuk mengunduh file aplikasi dengan nama <code>index.html</code>:
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="action-chip primary" onclick="exportUpdatedHtmlFile('index.html')">📥 Unduh index.html (Siap Upload GitHub)</button>
+            <button class="action-chip" onclick="downloadGithubReadme()">📄 Unduh README.md</button>
+          </div>
+        </div>
+
+        <div class="sync-source-card" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <div style="font-size:12px; font-weight:800; color:var(--ink-900);">Langkah 2 — Buat Repositori &amp; Upload File</div>
+          <div style="font-size:11.5px; color:var(--ink-600); line-height:1.5;">
+            1. Buka <a href="https://github.com/new" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:700;">github.com/new ↗</a> &rarr; isi Repository name: <code>satu-data-distribusi-kalsel</code>.<br/>
+            2. Pilih <strong>Public</strong> &rarr; centang <strong>Add a README file</strong> &rarr; klik <strong>Create repository</strong>.<br/>
+            3. Klik tombol <strong>Add file &rarr; Upload files</strong> di kanan atas repositori.<br/>
+            4. Tarik (<em>drag &amp; drop</em>) file <strong><code>index.html</code></strong> lalu klik <strong>Commit changes</strong>.
+          </div>
+          <div style="margin-top:2px;">
+            <a class="action-chip" href="https://github.com/new" target="_blank" rel="noopener" style="text-decoration:none; display:inline-flex;">➕ Buka github.com/new (Buat Repo Baru) ↗</a>
+          </div>
+        </div>
+
+        <div class="sync-source-card" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <div style="font-size:12px; font-weight:800; color:var(--ink-900);">Langkah 3 — Aktifkan GitHub Pages</div>
+          <div style="font-size:11.5px; color:var(--ink-600); line-height:1.5;">
+            1. Di halaman repositori Anda, klik tab <strong>Settings</strong> &rarr; menu <strong>Pages</strong> (di sidebar kiri).<br/>
+            2. Pada bagian <strong>Branch</strong>, ubah <em>None</em> menjadi <strong><code>main</code></strong> dan folder <strong><code>/ (root)</code></strong> &rarr; klik <strong>Save</strong>.<br/>
+            3. Tunggu &plusmn;30 detik, website Anda langsung aktif di:<br/>
+            <code style="display:inline-block; margin-top:4px; padding:3px 8px; background:#F1F5F9; border-radius:6px; font-weight:700; color:var(--teal-800);">https://&lt;username-anda&gt;.github.io/satu-data-distribusi-kalsel/</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 
   const bodyHtml = `
     <div class="criteria-switcher" style="margin-bottom:16px; flex-wrap:wrap;">
       <button class="crit-tab ${activeManagerTab === 'sync' ? 'active' : ''}" onclick="activeManagerTab='sync'; renderSyncAndLinkManagerModal();">🔄 1. Live Sync Google Sheets</button>
-      <button class="crit-tab ${activeManagerTab === 'links' ? 'active' : ''}" onclick="activeManagerTab='links'; renderSyncAndLinkManagerModal();">🔗 2. Kelola Link Kegiatan</button>
-      <button class="crit-tab ${activeManagerTab === 'rilis' ? 'active' : ''}" onclick="activeManagerTab='rilis'; renderSyncAndLinkManagerModal();">📅 3. Kelola Periode Rilis BRS</button>
+      <button class="crit-tab ${activeManagerTab === 'github' ? 'active' : ''}" onclick="activeManagerTab='github'; renderSyncAndLinkManagerModal();">🚀 2. Publish ke GitHub Pages</button>
+      <button class="crit-tab ${activeManagerTab === 'connector' ? 'active' : ''}" onclick="activeManagerTab='connector'; renderSyncAndLinkManagerModal();">🌐 3. Konektor Gratis &amp; Excel</button>
+      <button class="crit-tab ${activeManagerTab === 'links' ? 'active' : ''}" onclick="activeManagerTab='links'; renderSyncAndLinkManagerModal();">🔗 4. Kelola Link Kegiatan</button>
+      <button class="crit-tab ${activeManagerTab === 'rilis' ? 'active' : ''}" onclick="activeManagerTab='rilis'; renderSyncAndLinkManagerModal();">📅 5. Kelola Periode Rilis BRS</button>
     </div>
-    ${activeManagerTab === 'sync' ? tabSyncHtml : (activeManagerTab === 'links' ? tabLinksHtml : tabRilisHtml)}
+    ${activeManagerTab === 'sync' ? tabSyncHtml : (activeManagerTab === 'github' ? tabGithubHtml : (activeManagerTab === 'connector' ? tabConnectorHtml : (activeManagerTab === 'links' ? tabLinksHtml : tabRilisHtml)))}
   `;
 
   openModal(
@@ -6301,6 +6730,9 @@ function resetDefaultLinks() {
     localStorage.removeItem('bps_kalsel_custom_kegiatan_groups_v5');
     localStorage.removeItem('bps_kalsel_custom_rilis_v5');
     localStorage.removeItem('bps_kalsel_custom_sheet_ids_v5');
+    localStorage.removeItem('bps_kalsel_synced_eksim_core_v6');
+    localStorage.removeItem('bps_kalsel_synced_other_data_v6');
+    localStorage.removeItem('bps_kalsel_synced_micro_eksim_v6');
   } catch (e) {}
   location.reload();
 }
@@ -6346,6 +6778,167 @@ function saveRilisMappingPeriod() {
   renderSyncAndLinkManagerModal();
 }
 
+function saveGasConnectorUrl() {
+  const el = document.getElementById('sync-input-gas-url');
+  const val = String(el ? el.value : '').trim();
+  DATA.sheet_ids.gas_webapp_url = val;
+  saveLocalCustomizations();
+  renderSyncAndLinkManagerModal();
+  if (val) {
+    showToast('Konektor Google Apps Script berhasil disimpan! Menjalankan sinkronisasi...');
+    syncGoogleSheetsNow();
+  } else {
+    showToast('Konektor GAS dikosongkan. Menggunakan Mode Auto CORS / JSONP.');
+  }
+}
+
+function copyGasConnectorCode() {
+  const ta = document.getElementById('gas-script-preview');
+  if (!ta) return;
+  ta.select();
+  try {
+    document.execCommand('copy');
+    showToast('Kode Script (Kode.gs) berhasil disalin ke Clipboard!');
+  } catch (e) {
+    showToast('Silakan blok dan salin teks pada kotak Kode.gs.');
+  }
+}
+
+async function testAllSheetsConnection() {
+  const diagEl = document.getElementById('connector-diag-log');
+  const logLine = (msg) => {
+    if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px;">${msg}</div>`;
+  };
+  if (diagEl) diagEl.innerHTML = `<div>⏳ <strong>Menguji jalur konektor ke 5 Spreadsheet BPS Kalsel...</strong></div>`;
+
+  const targets = [
+    { name: 'Master Link Kegiatan', id: DATA.sheet_ids.master_links, sheet: 'Master_Link_Kegiatan' },
+    { name: 'Monitoring Distribusi 2026', id: DATA.sheet_ids.monitoring, sheet: 'Monitoring VPEK 2026' },
+    { name: 'LK BRS TPK & Transportasi', id: DATA.sheet_ids.tpk_trans, sheet: 'TPK' },
+    { name: '01 Data Ekspor Propasal', id: DATA.sheet_ids.ekspor, sheet: 'Data', tq: 'SELECT A, C WHERE A = 2026 LIMIT 5' },
+    { name: '02 Data Impor KPPBC', id: DATA.sheet_ids.impor, sheet: 'Data', tq: 'SELECT A, C WHERE A = 2026 LIMIT 5' }
+  ];
+
+  for (const t of targets) {
+    try {
+      const res = await fetchSheetGviz(t.id, t.sheet, 8000, t.tq || null);
+      logLine(`✅ <strong>${t.name}:</strong> Terhubung via <em>${res.connector || 'Live Connector'}</em> (${res.rows.length} baris sampel terbaca).`);
+    } catch (err) {
+      logLine(`⚠️ <strong>${t.name}:</strong> Sheet dibatasi aksesnya. Solusi gratis: pasang <em>Konektor Apps Script</em> di atas, ubah share sheet ke <em>Anyone with the link</em>, atau gunakan tombol <em>Pilih Excel Lokal</em>.`);
+    }
+  }
+}
+
+function handleLocalExcelImport(inputEl, targetType) {
+  const file = inputEl?.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === 'undefined') {
+    showToast('Pustaka pembaca Excel sedang dimuat, silakan coba lagi.', true);
+    return;
+  }
+  const diagEl = document.getElementById('connector-diag-log') || document.getElementById('sync-live-log');
+  if (diagEl) diagEl.innerHTML = `<div>⏳ Membaca file lokal <strong>${file.name}</strong>...</div>`;
+
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+
+      if (targetType === 'ekspor' || targetType === 'impor') {
+        const isEkspor = targetType === 'ekspor';
+        const shName = wb.SheetNames.find(n => n.toLowerCase() === 'data') || wb.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[shName], { header: 1, defval: null });
+        const maxM = rebuildEksimFrom2026Rows(rows.slice(1), isEkspor);
+        if (maxM > 0) {
+          currentMonth = Math.max(currentMonth, maxM);
+          saveLocalCustomizations();
+          populatePeriodeDropdown();
+          renderBRSAll();
+          showToast(`Berhasil mengimpor ${isEkspor ? 'Ekspor' : 'Impor'} s.d. ${MONTH_NAMES[maxM - 1]} 2026 dari file ${file.name}!`);
+          if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px; color:#047857;">✅ <strong>${file.name} (Sheet '${shName}'):</strong> Berhasil memperbarui data ${isEkspor ? 'Ekspor' : 'Impor'} 2026 s.d. Bulan ${MONTH_NAMES[maxM - 1]} 2026. Klik <em>Unduh index.html</em> untuk menyimpan permanen.</div>`;
+        } else {
+          showToast('Tidak ditemukan baris transaksi Tahun 2026 pada sheet Data.', true);
+        }
+      } else if (targetType === 'monitoring') {
+        let monCount = 0;
+        wb.SheetNames.forEach(shName => {
+          const mMatch = shName.match(/Monitoring\s+(.+?)\s+2026/i);
+          const kKey = mMatch ? mMatch[1].trim() : shName.trim();
+          if (!DATA.monitoring.detail_kab[kKey]) return;
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[shName], { header: 1, defval: null });
+          const kabRows = [];
+          let totT = 0, totR = 0, totSub = 0, totRej = 0, totApp = 0, totEd = 0, totOp = 0;
+          rows.forEach(r => {
+            const kdRaw = String(r[0] || '').replace('.0', '').trim();
+            if (KAB_NAMES[kdRaw]) {
+              const target = Number(r[1]) || 0;
+              const submit = Number(r[2]) || 0;
+              const appPeng = Number(r[3]) || 0;
+              const rej = (Number(r[4]) || 0) + (Number(r[5]) || 0);
+              const edited = Number(r[6]) || 0;
+              const compPeng = Number(r[7]) || 0;
+              const compAdm = Number(r[8]) || 0;
+              const realisasi = Number(r[9]) || (appPeng + edited + compPeng + compAdm + submit);
+              const approve = appPeng + compPeng + compAdm;
+              const sisa = Math.max(0, target - realisasi);
+              const progres = target > 0 ? Math.round((realisasi / target) * 1000) / 10 : 100.0;
+              kabRows.push({ kode: kdRaw, kab: KAB_NAMES[kdRaw], target, realisasi, progres, sisa, total_assignment: target, submit, reject: rej, approve, edited, open: sisa, draft: 0, lainnya: 0 });
+              totT += target; totR += realisasi; totSub += submit; totRej += rej; totApp += approve; totEd += edited; totOp += sisa;
+            }
+          });
+          if (kabRows.length >= 10) {
+            DATA.monitoring.detail_kab[kKey] = kabRows;
+            const rekItem = DATA.monitoring.rekap_kegiatan.find(x => x.kegiatan === kKey);
+            if (rekItem) {
+              rekItem.target = totT; rekItem.realisasi = totR;
+              rekItem.progres = totT > 0 ? Math.round((totR / totT) * 1000) / 10 : 100.0;
+              rekItem.sisa = Math.max(0, totT - totR);
+              rekItem.submit = totSub; rekItem.reject = totRej; rekItem.approve = totApp; rekItem.edited = totEd; rekItem.open = totOp;
+            }
+            monCount++;
+          }
+        });
+        saveLocalCustomizations();
+        if (document.getElementById('page-monitoring').classList.contains('active')) renderMonitoringPage();
+        showToast(`Berhasil memperbarui ${monCount} kegiatan monitoring dari ${file.name}!`);
+        if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px; color:#047857;">✅ <strong>${file.name}:</strong> Berhasil memperbarui ${monCount} kegiatan Monitoring 2026.</div>`;
+      } else if (targetType === 'tpk') {
+        const shName = wb.SheetNames.find(n => n.toUpperCase().includes('TPK')) || wb.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[shName], { header: 1, defval: null });
+        let tpkUpdated = 0;
+        rows.forEach(r => {
+          const th = Number(r[0]);
+          const bl = Number(r[1]);
+          const jenis = String(r[2] || '').trim();
+          const kelas = String(r[3] || '').trim();
+          if ((th === 2025 || th === 2026) && bl >= 1 && bl <= 12 && kelas) {
+            const yKey = String(th), mKey = String(bl);
+            if (!DATA.tpk[yKey]) DATA.tpk[yKey] = {};
+            if (!DATA.tpk[yKey][mKey]) DATA.tpk[yKey][mKey] = {};
+            DATA.tpk[yKey][mKey][kelas] = {
+              jenis,
+              tpk: r[4] !== null ? Math.round(Number(r[4]) * 100) / 100 : null,
+              rlm_gab: r[5] !== null ? Math.round(Number(r[5]) * 100) / 100 : null,
+              rlm_asing: r[6] !== null ? Math.round(Number(r[6]) * 100) / 100 : null,
+              rlm_nus: r[7] !== null ? Math.round(Number(r[7]) * 100) / 100 : null
+            };
+            tpkUpdated++;
+          }
+        });
+        saveLocalCustomizations();
+        renderBRSAll();
+        showToast(`Berhasil memperbarui ${tpkUpdated} baris data TPK dari ${file.name}!`);
+        if (diagEl) diagEl.innerHTML += `<div style="margin-top:4px; color:#047857;">✅ <strong>${file.name}:</strong> Berhasil menyinkronkan ${tpkUpdated} baris data TPK Hotel.</div>`;
+      }
+    } catch (err) {
+      showToast('Gagal membaca file Excel: ' + err.message, true);
+    }
+    inputEl.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function buildCleanHtmlSnapshot() {
   const clone = document.documentElement.cloneNode(true);
   const modalEl = clone.querySelector('#detail-modal');
@@ -6356,15 +6949,17 @@ function buildCleanHtmlSnapshot() {
   if (modalBodyEl) {
     modalBodyEl.innerHTML = '';
   }
+  const toastEl = clone.querySelector('[id="live-toast"]');
+  if (toastEl && toastEl.parentNode) {
+    toastEl.parentNode.removeChild(toastEl);
+  }
   const bodyEl = clone.querySelector('body');
   if (bodyEl) {
     bodyEl.style.overflow = '';
   }
   const rawHtml = clone.outerHTML;
   const updatedJson = JSON.stringify(DATA);
-  const replaced = rawHtml.replace(/const DATA = \{[\s\S]*?\};\r?\n/, function() {
-    return 'const DATA = ' + updatedJson + ';\n';
-  });
+  const replaced = rawHtml.replace(/const DATA = \{.*?\};\n/, `const DATA = ${updatedJson};\n`);
   return '<!DOCTYPE html>\n' + replaced;
 }
 
@@ -6380,12 +6975,327 @@ function exportUpdatedHtmlFile(customFilename) {
   showToast(`File ${a.download} berhasil diunduh!`);
 }
 
-// Initialize on load
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function getSavedGithubConfig() {
+  try {
+    const raw = localStorage.getItem('bps_kalsel_github_config_v1');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { owner: '', repo: 'satu-data-distribusi-kalsel', token: '', branch: 'main', lastPublishedAt: '' };
+}
+
+function saveGithubConfig(cfg) {
+  try {
+    const prev = getSavedGithubConfig();
+    const merged = Object.assign({}, prev, cfg);
+    localStorage.setItem('bps_kalsel_github_config_v1', JSON.stringify(merged));
+  } catch (e) {}
+}
+
+function toggleGhTokenVisibility() {
+  const inp = document.getElementById('gh-token-input');
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function buildGithubReadmeContent(owner, repo) {
+  const liveUrl = owner ? `https://${owner}.github.io/${repo}/` : `https://<username>.github.io/${repo}/`;
+  return `# 📊 Portal Satu Data Distribusi & Jasa — BPS Provinsi Kalimantan Selatan
+
+Website interaktif monitoring & visualisasi indikator strategis **Statistik Distribusi dan Jasa BPS Provinsi Kalimantan Selatan** (Ekspor-Impor ATAP/ASEM, Pariwisata TPK Hotel, Transportasi Laut & Udara, Direktori Link Kegiatan, dan Monitoring Lapangan 13 Kabupaten/Kota).
+
+🌐 **Akses Website Live:** [${liveUrl}](${liveUrl})
+
+## ✨ Fitur Utama
+- **Indikator Rilis Bulanan (BRS):** Ekspor & Impor (dilengkapi penanda status data **ATAP** / Angka Tetap dan **ASEM** / Angka Sementara), Tingkat Penghunian Kamar (TPK) Hotel, serta Angkutan Laut & Udara s.d. Data September 2026 (Rilis November 2026).
+- **4-Layer Free Live Connector:** Mendukung sinkronisasi langsung dari Google Sheets (Google Apps Script API, Direct CORS Fetch, JSONP GVIZ) serta impor langsung file Excel/CSV lokal (\`.xlsx\` / \`.csv\`).
+- **Auto-Deploy GitHub Pages:** Pembaruan data dapat dipublikasikan kembali ke GitHub Pages langsung dari dalam dashboard.
+`;
+}
+
+function downloadGithubReadme() {
+  const cfg = getSavedGithubConfig();
+  const repoEl = document.getElementById('gh-repo-input');
+  const ownerEl = document.getElementById('gh-owner-input');
+  const repo = String(repoEl?.value || cfg.repo || 'satu-data-distribusi-kalsel').trim();
+  const owner = String(ownerEl?.value || cfg.owner || '').trim();
+  const md = buildGithubReadmeContent(owner, repo);
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'README.md';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('File README.md berhasil diunduh!');
+}
+
+async function publishToGitHubPagesNow() {
+  const repoEl = document.getElementById('gh-repo-input');
+  const ownerEl = document.getElementById('gh-owner-input');
+  const tokenEl = document.getElementById('gh-token-input');
+  const commitEl = document.getElementById('gh-commit-input');
+  const logEl = document.getElementById('gh-publish-log');
+  const btnEl = document.getElementById('btn-gh-publish-now');
+
+  let repo = String(repoEl?.value || 'satu-data-distribusi-kalsel').trim().replace(/[^a-zA-Z0-9._-]/g, '-');
+  let owner = String(ownerEl?.value || '').trim();
+  const token = String(tokenEl?.value || '').trim();
+  const commitMsg = String(commitEl?.value || 'Update Portal Satu Data Distribusi BPS Kalsel').trim();
+
+  const logLine = (html) => {
+    if (logEl) logEl.innerHTML += `<div style="margin-top:4px;">${html}</div>`;
+  };
+
+  if (!token) {
+    if (logEl) {
+      logEl.innerHTML = `<div style="color:#BE123C; font-weight:700;">⚠️ Token GitHub belum diisi!</div>
+      <div style="margin-top:4px;">Silakan klik link <strong>"🔑 Buat Token GitHub Otomatis (15 Detik)"</strong> di atas untuk membuat token gratis di GitHub, atau gunakan <strong>Metode 2 (Unduh index.html &amp; Upload Manual)</strong> di sebelah kanan.</div>`;
+    }
+    showToast('Masukkan GitHub Personal Access Token terlebih dahulu, atau gunakan Metode 2 (Upload Manual).', true);
+    return;
+  }
+
+  if (!repo) repo = 'satu-data-distribusi-kalsel';
+  if (repoEl) repoEl.value = repo;
+
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28'
+  };
+
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerHTML = '⏳ Sedang Mem-publish ke GitHub...';
+  }
+  if (logEl) {
+    logEl.innerHTML = `<div>⏳ <strong>Memulai proses Auto-Deploy ke GitHub Pages...</strong></div>`;
+  }
+
+  try {
+    // 1. Verify authenticated user
+    const userRes = await fetch('https://api.github.com/user', { headers });
+    if (!userRes.ok) {
+      const errJson = await userRes.json().catch(() => ({}));
+      throw new Error(`Token GitHub tidak valid atau kedaluwarsa (${userRes.status}: ${errJson.message || 'Unauthorized'}). Pastikan izin 'repo' dicentang.`);
+    }
+    const userData = await userRes.json();
+    owner = userData.login;
+    if (ownerEl) ownerEl.value = owner;
+    saveGithubConfig({ owner, repo, token });
+    logLine(`✅ <strong>1/4 Akun GitHub terverifikasi:</strong> <code>@${owner}</code>`);
+
+    // 2. Check if repository exists; if not, create it automatically
+    let branch = 'main';
+    let repoRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { headers });
+    if (repoRes.status === 404) {
+      logLine(`⏳ Membuat repositori publik baru <strong>${owner}/${repo}</strong>...`);
+      const createRes = await fetch('https://api.github.com/user/repos', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body: JSON.stringify({
+          name: repo,
+          description: 'Portal Satu Data Distribusi & Jasa — BPS Provinsi Kalimantan Selatan',
+          homepage: `https://${owner}.github.io/${repo}/`,
+          private: false,
+          auto_init: true
+        })
+      });
+      if (!createRes.ok) {
+        const cErr = await createRes.json().catch(() => ({}));
+        throw new Error(`Gagal membuat repositori '${repo}': ${cErr.message || createRes.statusText}`);
+      }
+      const createdRepo = await createRes.json();
+      branch = createdRepo.default_branch || 'main';
+      await new Promise(r => setTimeout(r, 1500));
+      logLine(`✅ <strong>2/4 Repositori berhasil dibuat:</strong> <a href="https://github.com/${owner}/${repo}" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:700;">${owner}/${repo} ↗</a>`);
+    } else if (repoRes.ok) {
+      const repoData = await repoRes.json();
+      branch = repoData.default_branch || 'main';
+      logLine(`✅ <strong>2/4 Repositori ditemukan:</strong> <a href="https://github.com/${owner}/${repo}" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:700;">${owner}/${repo} ↗</a> (Branch: <code>${branch}</code>)`);
+    } else {
+      throw new Error(`Gagal memeriksa repositori (${repoRes.status})`);
+    }
+
+    // 3. List root directory to obtain existing file SHAs safely (works even for >1MB files)
+    let existingIndexSha = null;
+    let hasNojekyll = false;
+    let existingReadmeSha = null;
+    const contentsRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/?ref=${encodeURIComponent(branch)}`, { headers });
+    if (contentsRes.ok) {
+      const rootFiles = await contentsRes.json();
+      if (Array.isArray(rootFiles)) {
+        const idxFile = rootFiles.find(f => f.name === 'index.html');
+        if (idxFile) existingIndexSha = idxFile.sha;
+        const njFile = rootFiles.find(f => f.name === '.nojekyll');
+        if (njFile) hasNojekyll = true;
+        const rmFile = rootFiles.find(f => f.name === 'README.md');
+        if (rmFile) existingReadmeSha = rmFile.sha;
+      }
+    }
+
+    // 4. Build clean HTML snapshot & upload as index.html
+    const cleanHtml = buildCleanHtmlSnapshot();
+    const sizeMb = (cleanHtml.length / (1024 * 1024)).toFixed(2);
+    logLine(`⏳ Mengunggah <code>index.html</code> (${sizeMb} MB) ke GitHub...`);
+
+    const putPayload = {
+      message: commitMsg,
+      content: utf8ToBase64(cleanHtml),
+      branch: branch
+    };
+    if (existingIndexSha) putPayload.sha = existingIndexSha;
+
+    const putRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/index.html`, {
+      method: 'PUT',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+      body: JSON.stringify(putPayload)
+    });
+
+    if (!putRes.ok) {
+      const pErr = await putRes.json().catch(() => ({}));
+      throw new Error(`Gagal mengunggah index.html (${putRes.status}: ${pErr.message || putRes.statusText})`);
+    }
+    logLine(`✅ <strong>3/4 File <code>index.html</code> berhasil diunggah ke branch <code>${branch}</code>!</strong>`);
+
+    // Also add .nojekyll and README.md for fast static serving
+    if (!hasNojekyll) {
+      await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/.nojekyll`, {
+        method: 'PUT',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body: JSON.stringify({
+          message: 'Bypass Jekyll build for instant static serving',
+          content: '',
+          branch: branch
+        })
+      }).catch(() => {});
+    }
+
+    const readmeBody = {
+      message: 'Update dokumentasi README Portal Satu Data Distribusi BPS Kalsel',
+      content: utf8ToBase64(buildGithubReadmeContent(owner, repo)),
+      branch: branch
+    };
+    if (existingReadmeSha) readmeBody.sha = existingReadmeSha;
+    await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/README.md`, {
+      method: 'PUT',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+      body: JSON.stringify(readmeBody)
+    }).catch(() => {});
+
+    // 5. Enable GitHub Pages if not already enabled
+    let pagesRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pages`, { headers });
+    if (pagesRes.status === 404) {
+      logLine(`⏳ Mengaktifkan layanan <strong>GitHub Pages</strong> pada branch <code>${branch}</code>...`);
+      await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pages`, {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body: JSON.stringify({
+          source: { branch: branch, path: '/' }
+        })
+      });
+    }
+
+    const liveUrl = `https://${owner}.github.io/${repo}/`;
+    const nowStr = new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    saveGithubConfig({ owner, repo, token, branch, lastPublishedAt: nowStr });
+
+    logLine(`🎉 <strong>4/4 BERHASIL DIPUBLISH KE GITHUB PAGES!</strong>`);
+    logLine(`<div style="margin-top:8px; padding:10px 12px; background:#ECFDF5; border:1px solid #6EE7B7; border-radius:8px;">
+      <div style="font-weight:800; color:#065F46; font-size:12.5px;">🌐 Link Website Publik Anda:</div>
+      <div style="margin-top:4px;"><a href="${liveUrl}" target="_blank" rel="noopener" style="font-size:13px; font-weight:800; color:#047857; word-break:break-all;">${liveUrl} ↗</a></div>
+      <div style="margin-top:4px; font-size:11px; color:#047857;">📦 Repositori: <a href="https://github.com/${owner}/${repo}" target="_blank" rel="noopener" style="color:#065F46; font-weight:700;">https://github.com/${owner}/${repo} ↗</a> (Tunggu &plusmn;30–60 detik jika baru pertama kali dibuat agar CDN GitHub Pages aktif).</div>
+    </div>`);
+
+    showToast(`Berhasil dipublish ke ${liveUrl}!`);
+  } catch (err) {
+    logLine(`<div style="color:#BE123C; font-weight:700; margin-top:6px;">❌ Gagal Auto-Publish: ${err.message}</div>`);
+    showToast('Gagal publish ke GitHub: ' + err.message, true);
+  } finally {
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.innerHTML = '🚀 Publish &amp; Aktifkan GitHub Pages Sekarang';
+    }
+  }
+}
+
+async function checkGitHubPagesStatus() {
+  const cfg = getSavedGithubConfig();
+  const repo = String(document.getElementById('gh-repo-input')?.value || cfg.repo || 'satu-data-distribusi-kalsel').trim();
+  const owner = String(document.getElementById('gh-owner-input')?.value || cfg.owner || '').trim();
+  const token = String(document.getElementById('gh-token-input')?.value || cfg.token || '').trim();
+  const logEl = document.getElementById('gh-publish-log');
+
+  if (!owner) {
+    showToast('Masukkan Username GitHub atau jalankan Publish terlebih dahulu.', true);
+    return;
+  }
+
+  const liveUrl = `https://${owner}.github.io/${repo}/`;
+  if (logEl) logEl.innerHTML = `<div>⏳ Memeriksa status GitHub Pages untuk <strong>${owner}/${repo}</strong>...</div>`;
+
+  try {
+    const headers = { 'Accept': 'application/vnd.github+json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pages`, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const statusText = data.status === 'built' ? '🟢 Online (Built)' : `🟡 Sedang Memproses (${data.status || 'Building'})`;
+      if (logEl) {
+        logEl.innerHTML = `
+          <div>✅ <strong>Status GitHub Pages:</strong> ${statusText}</div>
+          <div style="margin-top:4px;">🌐 <strong>URL Publik:</strong> <a href="${data.html_url || liveUrl}" target="_blank" rel="noopener" style="color:#047857; font-weight:800;">${data.html_url || liveUrl} ↗</a></div>
+          <div style="margin-top:4px;">📦 <strong>Repositori:</strong> <a href="https://github.com/${owner}/${repo}" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:700;">https://github.com/${owner}/${repo} ↗</a></div>
+        `;
+      }
+    } else {
+      if (logEl) {
+        logEl.innerHTML = `
+          <div>ℹ️ <strong>URL Target:</strong> <a href="${liveUrl}" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:800;">${liveUrl} ↗</a></div>
+          <div style="margin-top:4px; color:var(--ink-600);">Jika halaman belum tampil, pastikan repositori <code>${owner}/${repo}</code> sudah dibuat dan menu <strong>Settings &rarr; Pages &rarr; Branch: main</strong> sudah diaktifkan.</div>
+        `;
+      }
+    }
+  } catch (e) {
+    if (logEl) {
+      logEl.innerHTML = `<div>🌐 <strong>Link GitHub Pages:</strong> <a href="${liveUrl}" target="_blank" rel="noopener" style="color:var(--teal-700); font-weight:800;">${liveUrl} ↗</a></div>`;
+    }
+  }
+}
+
+// Initialize on load with instant localStorage restore + automatic background Google Sheets sync
 window.addEventListener('DOMContentLoaded', () => {
   loadLocalCustomizations();
   populatePeriodeDropdown();
   renderBRSAll();
   renderKegiatanGrid();
+
+  // Jalankan Auto-Sync otomatis setiap kali halaman dibuka / di-refresh tanpa harus klik tombol Sync manual
+  setTimeout(() => {
+    syncGoogleSheetsNow({ isAuto: true });
+  }, 150);
+
+  // Jalankan Auto-Sync otomatis saat pengguna kembali ke tab web ini setelah mengedit Google Spreadsheet
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && (Date.now() - lastAutoSyncTimestamp > 20000)) {
+      syncGoogleSheetsNow({ isAuto: true });
+    }
+  });
+  window.addEventListener('focus', () => {
+    if (Date.now() - lastAutoSyncTimestamp > 20000) {
+      syncGoogleSheetsNow({ isAuto: true });
+    }
+  });
 });
 </script>
 </body>
